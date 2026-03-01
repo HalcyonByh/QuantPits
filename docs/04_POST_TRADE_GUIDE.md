@@ -28,7 +28,7 @@ QuantPits/
             ├── prod_config.json        # 持仓/现金/处理状态
         │   └── cashflow.json             # 出入金记录
         └── data/
-            ├── YYYY-MM-DD-table.xlsx     # 交易软件导出文件（每日一个）
+            ├── YYYY-MM-DD-table.xlsx     # 交易软件导出文件（每日一个，当前来源：国泰君安交割单脱敏导出）
             ├── emp-table.xlsx            # 空模板（无交易日使用）
             ├── trade_log_full.csv        # 交易日志（累计）
             ├── trade_detail_YYYY-MM-DD.csv # 每日交易详情
@@ -137,6 +137,15 @@ cash_after = cash_before + 卖出收入 - 买入支出 + 红利利息 + cashflow
 | `holding_log_full.csv` | 每日持仓快照 | 追加 + 去重 |
 | `daily_amount_log_full.csv` | 每日资金汇总 | 追加 + 去重 |
 | `trade_detail_*.csv` | 单日交易详情 | 每日覆写 |
+
+### 券商交割单数据约定 (以国泰君安为例)
+
+系统直接通过 pandas 原生读取 `YYYY-MM-DD-table.xlsx`，由于各家券商导出的表头结构不尽相同，目前的处理逻辑高度适配**国泰君安交割单导出格式**。
+核心代码读取行为：
+*   **Sheet 名称**：默认读取 `Sheet1`
+*   **前置跳过**：默认跳过前 5 行无用表头 (`skiprows=5`)
+*   **关键列保留**：为了防止代码转数字后丢失前导零，程序强制将 `证券代码` 列读取为 String 格式，并剥离掉可能附带的 `\t` 等制表符。
+*   **行为识别**：程序内定 `上海A股普通股票竞价卖出`, `深圳A股普通股票竞价卖出` 为系统合法 `SELL_TYPES`；而 `...买入` 为合法 `BUY_TYPES`。红利和税务扣款也有专门的字段映射（详见代码顶部的 `INTEREST_TYPES`）。
 
 ---
 

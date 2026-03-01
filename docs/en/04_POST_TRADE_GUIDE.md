@@ -28,7 +28,7 @@ QuantPits/
         │   ├── prod_config.json        # Holdings/Cash/Process state
         │   └── cashflow.json             # Deposit/Withdrawal mapping records
         └── data/
-            ├── YYYY-MM-DD-table.xlsx     # Daily discrete exported trade spreadsheets
+            ├── YYYY-MM-DD-table.xlsx     # Daily discrete exported trade spreadsheets (Current parsing matched to: Guotai Junan Securities export format)
             ├── emp-table.xlsx            # Null placeholder templates (Used automatically for empty trading days)
             ├── trade_log_full.csv        # Cumulative holistic trade transaction ledger
             ├── trade_detail_YYYY-MM-DD.csv # Explicit daily trade itemization
@@ -137,6 +137,15 @@ cash_after = cash_before + Total_Sell_Value - Total_Buy_Gross + Dividends_Intere
 | `holding_log_full.csv` | Inter-day positional footprint snapshots | Append + Deduplication |
 | `daily_amount_log_full.csv` | Aggregate account capitalization tracking | Append + Deduplication |
 | `trade_detail_*.csv` | Discrete slice of single day trade logs | Daily Full Overwrite |
+
+### Broker Export Data Conventions (e.g. Guotai Junan Securities)
+
+The system directly utilizes native pandas to read `YYYY-MM-DD-table.xlsx`. Because the header structure of exported files varies across different brokers, the current processing logic is highly tailored to the **Guotai Junan Securities (国泰君安) delivery order export format**.
+Core code reading behaviors:
+*   **Sheet Name**: Defaults to reading `Sheet1`.
+*   **Header Skip**: Defaults to skipping the first 5 rows of useless headers (`skiprows=5`).
+*   **Crucial Column Retention**: To prevent leading zeros from being lost when the code converts them to numbers, the program forces the `证券代码` (Stock Code) column to be read as a String format, stripping off any attached tab characters like `\t`.
+*   **Action Recognition**: The program natively defines "上海A股普通股票竞价卖出" and "深圳A股普通股票竞价卖出" as legal system `SELL_TYPES`; whereas "...买入" are legal `BUY_TYPES`. Dividends and tax deductions also have dedicated field mappings (detailed at the top of the code in `INTEREST_TYPES`).
 
 ---
 
