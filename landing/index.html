@@ -7,11 +7,44 @@
   <title>QuantPits — Where Alphas Are Forged</title>
   <meta name="description"
     content="QuantPits is a production-ready quantitative trading system built on Microsoft Qlib. End-to-end pipeline with ensemble modeling, workspace isolation, and interactive dashboards." />
+
+  <!-- ===== SECURITY HEADERS ===== -->
+  <!-- CSP: strict allowlist, only permit Google Fonts external resources -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none';
+             script-src 'unsafe-inline';
+             style-src 'unsafe-inline' https://fonts.googleapis.com;
+             font-src https://fonts.gstatic.com;
+             img-src 'self' data:;
+             connect-src 'none';
+             frame-src 'none';
+             object-src 'none';
+             base-uri 'self';
+             form-action 'none';" />
+  <!-- Referrer: send origin only on cross-origin, full URL on same-origin -->
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <!-- Permissions Policy: disable all device APIs -->
+  <meta http-equiv="Permissions-Policy"
+    content="camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()" />
+  <!--
+    NOTE: The following headers CANNOT be set via <meta> tags.
+    If using Cloudflare/CDN in front of GitHub Pages, configure them
+    as HTTP response headers via Transform Rules:
+      X-Frame-Options: DENY
+      X-Content-Type-Options: nosniff
+      Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+      Cross-Origin-Opener-Policy: same-origin
+      Cross-Origin-Resource-Policy: same-origin
+
+    SRI (Subresource Integrity) is intentionally NOT applied to Google Fonts
+    because their CSS payload varies by user-agent (serving woff2 vs woff etc.),
+    making integrity hashes unstable across browsers.
+  -->
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
-    rel="stylesheet" />
+    rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
     /* ===== CSS RESET & BASE ===== */
     *,
