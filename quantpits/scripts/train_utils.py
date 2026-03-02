@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 import gc
 import traceback
 
-import env
+from quantpits.scripts import env
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = env.ROOT_DIR

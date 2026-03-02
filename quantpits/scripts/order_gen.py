@@ -35,8 +35,7 @@ import json
 import glob
 import argparse
 from datetime import datetime
-
-import env
+from quantpits.scripts import env
 os.chdir(env.ROOT_DIR)
 
 import numpy as np

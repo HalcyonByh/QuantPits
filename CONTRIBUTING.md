@@ -167,3 +167,16 @@ Open a GitHub Issue with the title prefixed by `[Feature Request]` and describe:
 ---
 
 Thank you for contributing to QuantPits! 🎉
+
+## Testing
+
+This project uses `pytest` for unit testing. We encourage writing tests for all new features and bug fixes.
+
+1.  **Framework:** `pytest` is the primary test runner. We also use `pytest-cov` for coverage reporting and `unittest.mock` for mocking dependencies.
+2.  **Directory Structure:** Tests are located in the `tests/` directory, which mirrors the structure of the `quantpits/` package.
+3.  **Running Tests:** Use the following command to run the test suite and generate a coverage report:
+    ```bash
+    pytest tests/ -v --cov=quantpits
+    ```
+4.  **Mocking:** When writing tests for modules that interact with the file system (`env.py`, `train_utils.py`) or external libraries like Qlib, use `unittest.mock.patch` or the `pytest-mock` plugin to isolate the unit under test. Global fixtures are defined in `tests/conftest.py`.
+

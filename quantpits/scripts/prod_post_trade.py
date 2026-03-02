@@ -33,7 +33,7 @@ import pandas as pd
 from quantpits.scripts.brokers import get_adapter
 from quantpits.scripts.brokers.base import SELL_TYPES, BUY_TYPES, INTEREST_TYPES
 
-import env
+from quantpits.scripts import env
 os.chdir(env.ROOT_DIR)
 
 # ---------------------------------------------------------------------------

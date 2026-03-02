@@ -24,3 +24,20 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["quantpits*"]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0"
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --cov=quantpits --cov-report=term-missing"
+testpaths = [
+    "tests",
+]
+pythonpath = [
+    "."
+]
