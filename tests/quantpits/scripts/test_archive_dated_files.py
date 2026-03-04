@@ -221,3 +221,114 @@ def test_print_summary(mock_env, capsys):
     captured = capsys.readouterr()
     assert "总计: 3" in captured.out
     assert "DRY-RUN" in captured.out
+
+def test_archive_notebooks_output_dir(mock_env):
+    adf, workspace = mock_env
+    nb_dir = workspace / "notebooks"
+    nb_dir.mkdir()
+    out_dir = nb_dir / "output"
+    out_dir.mkdir()
+    
+    # Empty dir should be removed in real run
+    adf.archive_legacy_notebooks(dry_run=False)
+    assert not out_dir.exists()
+
+def test_archive_notebooks_output_dir_dry_run(mock_env, capsys):
+    adf, workspace = mock_env
+    nb_dir = workspace / "notebooks"
+    nb_dir.mkdir()
+    out_dir = nb_dir / "output"
+    out_dir.mkdir()
+    
+    adf.archive_legacy_notebooks(dry_run=True)
+    assert out_dir.exists()
+    captured = capsys.readouterr()
+    assert "[DRY-RUN] 将删除空目录" in captured.out
+
+# ── legacy items ─────────────────────────────────────────────────────────
+
+def test_archive_legacy_notebooks(mock_env, monkeypatch):
+    adf, workspace = mock_env
+    nb_dir = workspace / "notebooks"
+    nb_dir.mkdir()
+    (nb_dir / "old.ipynb").write_text("{}")
+    
+    monkeypatch.setattr(adf, 'LEGACY_NOTEBOOKS', ["old.ipynb"])
+    
+    moves = adf.archive_legacy_notebooks(dry_run=True)
+    assert len(moves) == 1
+    assert "old.ipynb" in moves[0][1]
+
+def test_archive_legacy_items(mock_env, monkeypatch):
+    adf, workspace = mock_env
+    (workspace / "legacy.py").write_text("old code")
+    
+    monkeypatch.setattr(adf, 'LEGACY_ITEMS', {"legacy.py": "old/legacy.py"})
+    
+    moves = adf.archive_legacy_items(dry_run=True)
+    assert len(moves) == 1
+    assert "old/legacy.py" in moves[0][1]
+
+# ── execute_moves directory ──────────────────────────────────────────────
+
+def test_execute_moves_directory(mock_env):
+    adf, workspace = mock_env
+    src_dir = workspace / "output" / "subdir"
+    src_dir.mkdir()
+    (src_dir / "file.txt").write_text("ok")
+    
+    dest_dir = workspace / "archive" / "output" / "subdir"
+    
+    moves = [(str(src_dir), str(dest_dir), "output")]
+    total = adf.execute_moves(moves, dry_run=False)
+    assert total == 1
+    assert not src_dir.exists()
+    assert dest_dir.exists()
+    assert (dest_dir / "file.txt").exists()
+
+# ── main ─────────────────────────────────────────────────────────────────
+
+def test_main_dry_run(mock_env, capsys):
+    adf, workspace = mock_env
+    # Create an old file
+    (workspace / "output" / "pred_2026-01-01.csv").write_text("old")
+    # And records
+    records = {"anchor_date": "2026-03-01"}
+    with open(workspace / "latest_train_records.json", "w") as f:
+        json.dump(records, f)
+        
+    with patch.object(sys, 'argv', ['script.py', '--dry-run']):
+        adf.main()
+    
+    captured = capsys.readouterr()
+    assert "DRY-RUN" in captured.out
+    assert "pred_2026-01-01.csv" in captured.out
+
+def test_main_real_all(mock_env, monkeypatch):
+    adf, workspace = mock_env
+    # Dated file
+    (workspace / "output" / "pred_2026-01-01.csv").write_text("old")
+    # Legacy nb
+    nb_dir = workspace / "notebooks"
+    nb_dir.mkdir()
+    (nb_dir / "old.ipynb").write_text("{}")
+    monkeypatch.setattr(adf, 'LEGACY_NOTEBOOKS', ["old.ipynb"])
+    # Legacy item
+    (workspace / "legacy.py").write_text("old")
+    monkeypatch.setattr(adf, 'LEGACY_ITEMS', {"legacy.py": "old/legacy.py"})
+    
+    with patch.object(sys, 'argv', ['script.py', '--all', '--anchor-date', '2026-03-01']):
+        adf.main()
+        
+    assert (workspace / "archive" / "output" / "pred_2026-01-01.csv").exists()
+    assert (workspace / "archive" / "notebooks" / "old.ipynb").exists()
+    assert (workspace / "archive" / "old" / "legacy.py").exists()
+
+def test_main_skip_trade_data(mock_env):
+    adf, workspace = mock_env
+    (workspace / "output" / "buy_suggestion_2026-01-01.csv").write_text("trade")
+    
+    with patch.object(sys, 'argv', ['script.py', '--skip-trade-data', '--anchor-date', '2026-03-01']):
+        adf.main()
+    
+    assert (workspace / "output" / "buy_suggestion_2026-01-01.csv").exists()

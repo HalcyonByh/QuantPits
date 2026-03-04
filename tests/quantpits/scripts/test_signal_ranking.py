@@ -164,3 +164,205 @@ def test_find_prediction_file_not_found(mock_env):
         
     with pytest.raises(FileNotFoundError):
         sr.find_prediction_file(combo_name=None)
+
+# ── main ─────────────────────────────────────────────────────────────────
+def test_main_default(mock_env, tmp_path):
+    sr, workspace = mock_env
+    pred_dir = workspace / "output" / "predictions"
+    pred_file = pred_dir / "ensemble_2026-03-01.csv"
+    
+    # Create mock prediction data
+    df = pd.DataFrame({
+        "score": [0.1, 0.9]
+    }, index=pd.MultiIndex.from_tuples([
+        ("000001", "2026-03-01"),
+        ("000002", "2026-03-01")
+    ], names=["instrument", "datetime"]))
+    df.to_csv(pred_file)
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--output-dir', str(workspace / "output" / "ranking")]):
+        sr.main()
+    
+    ranking_dir = workspace / "output" / "ranking"
+    assert ranking_dir.exists()
+    # Signal_default_2026-03-01_Top300.csv
+    files = list(ranking_dir.glob("Signal_default_2026-03-01_*.csv"))
+    assert len(files) == 1
+
+def test_main_dry_run(mock_env, tmp_path):
+    sr, workspace = mock_env
+    pred_dir = workspace / "output" / "predictions"
+    pred_file = pred_dir / "ensemble_2026-03-01.csv"
+    df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
+    df.to_csv(pred_file)
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--output-dir', str(workspace / "output" / "ranking")]):
+        sr.main()
+    
+    ranking_dir = workspace / "output" / "ranking"
+    # Even in dry-run, ranking_dir might be created by os.makedirs(args.output_dir, ...),
+    # but no files should be written.
+    if ranking_dir.exists():
+        files = list(ranking_dir.glob("*.csv"))
+        assert len(files) == 0
+
+def test_main_prediction_file(mock_env, tmp_path):
+    sr, workspace = mock_env
+    custom_file = tmp_path / "custom.csv"
+    df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
+    df.to_csv(custom_file)
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--prediction-file', str(custom_file), '--output-dir', str(workspace / "output" / "ranking")]):
+        sr.main()
+        
+    ranking_dir = workspace / "output" / "ranking"
+    files = list(ranking_dir.glob("Signal_custom_*.csv"))
+    assert len(files) == 1
+
+def test_main_all_combos(mock_env, tmp_path):
+    sr, workspace = mock_env
+    config_file = workspace / "config" / "ensemble_config.json"
+    cfg = {"combos": {"cA": {"models": ["m1"], "default": True}}}
+    config_file.write_text(json.dumps(cfg))
+    
+    pred_dir = workspace / "output" / "predictions"
+    pred_file = pred_dir / "ensemble_cA_2026-03-01.csv"
+    df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-03-01")], names=["instrument", "datetime"]))
+    df.to_csv(pred_file)
+
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking")]):
+        sr.main()
+        
+    ranking_dir = workspace / "output" / "ranking"
+    files = list(ranking_dir.glob("Signal_cA_*.csv"))
+    assert len(files) == 1
+
+def test_main_combo_arg(mock_env, tmp_path):
+    sr, workspace = mock_env
+    pred_dir = workspace / "output" / "predictions"
+    pred_file = pred_dir / "ensemble_cB_2026-03-01.csv"
+    df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
+    df.to_csv(pred_file)
+
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--combo', 'cB', '--output-dir', str(workspace / "output" / "ranking")]):
+        sr.main()
+    
+    ranking_dir = workspace / "output" / "ranking"
+    files = list(ranking_dir.glob("Signal_cB_*.csv"))
+    assert len(files) == 1
+
+def test_main_error_no_config_combos(mock_env, tmp_path):
+    sr, workspace = mock_env
+    config_file = workspace / "config" / "ensemble_config.json"
+    cfg = {"other": {}} # No 'combos' or 'models'
+    config_file.write_text(json.dumps(cfg))
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--all-combos']):
+        with pytest.raises(SystemExit) as e:
+            sr.main()
+        assert e.value.code == 1
+
+def test_main_all_combos_partial_missing(mock_env, tmp_path):
+    sr, workspace = mock_env
+    config_file = workspace / "config" / "ensemble_config.json"
+    cfg = {"combos": {
+        "cA": {"models": ["m1"]},
+        "cB": {"models": ["m2"]}
+    }}
+    config_file.write_text(json.dumps(cfg))
+    
+    pred_dir = workspace / "output" / "predictions"
+    # Only cA has a file
+    pred_file = pred_dir / "ensemble_cA_2026-03-01.csv"
+    df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
+    df.to_csv(pred_file)
+
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking")]):
+        sr.main()
+    
+    ranking_dir = workspace / "output" / "ranking"
+    assert len(list(ranking_dir.glob("Signal_cA_*.csv"))) == 1
+    assert len(list(ranking_dir.glob("Signal_cB_*.csv"))) == 0
+
+def test_main_all_combos_none_found(mock_env, tmp_path):
+    sr, workspace = mock_env
+    config_file = workspace / "config" / "ensemble_config.json"
+    cfg = {"combos": {"cA": {"models": ["m1"]}}}
+    config_file.write_text(json.dumps(cfg))
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--all-combos']):
+        with pytest.raises(SystemExit) as e:
+            sr.main()
+        assert e.value.code == 1
+
+def test_main_exit_not_found(mock_env):
+    sr, _ = mock_env
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--prediction-file', 'nonexistent.csv']):
+        with pytest.raises(SystemExit) as e:
+            sr.main()
+        assert e.value.code == 1
+
+def test_main_all_combos_no_config(mock_env, tmp_path):
+    sr, workspace = mock_env
+    # No config file created
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--all-combos']):
+        with pytest.raises(SystemExit) as e:
+            sr.main()
+        assert e.value.code == 1
+
+# ── generate_signal_scores Edge Cases ─────────────────────────────────────
+def test_generate_signal_scores_multiple_dates(mock_env):
+    sr, _ = mock_env
+    # Index with multiple dates
+    idx = pd.MultiIndex.from_tuples([
+        ("A", "2026-03-01"),
+        ("A", "2026-03-02")
+    ], names=["instrument", "datetime"])
+    df = pd.DataFrame({"score": [0.1, 0.9]}, index=idx)
+    
+    res_df, latest_date = sr.generate_signal_scores(df)
+    assert latest_date == "2026-03-02"
+    assert len(res_df) == 1 # Only one instrument, A, on latest date
+
+def test_generate_signal_scores_no_datetime_index(mock_env):
+    sr, _ = mock_env
+    # Index without datetime level
+    idx = pd.Index(["A", "B"], name="instrument")
+    df = pd.DataFrame({"score": [0.1, 0.9]}, index=idx)
+    
+    res_df, latest_date = sr.generate_signal_scores(df)
+    assert latest_date is None
+    assert len(res_df) == 2
+
+# ── find_prediction_file Fallback ─────────────────────────────────────────
+def test_find_prediction_file_fallback(mock_env, tmp_path):
+    sr, workspace = mock_env
+    pred_dir = workspace / "output" / "predictions"
+    # Create a file that NOT follows the YYYY-MM-DD pattern
+    (pred_dir / "ensemble_weird.csv").write_text("data")
+    
+    res = sr.find_prediction_file(combo_name=None)
+    assert "ensemble_weird.csv" in res
+
+# ── get_default_combo Fallback ────────────────────────────────────────────
+def test_get_default_combo_fallback(mock_env):
+    sr, _ = mock_env
+    # None of the combos have default: True
+    combos = {"cA": {"models": []}, "cB": {"models": []}}
+    name, cfg = sr.get_default_combo(combos)
+    assert name == "cA" # Should return first one
+
+def test_get_default_combo_empty(mock_env):
+    sr, _ = mock_env
+    name, cfg = sr.get_default_combo({})
+    assert name is None

@@ -2,6 +2,7 @@ import os
 import stat
 import pytest
 import yaml
+from unittest.mock import patch
 
 from quantpits.scripts.init_workspace import init_workspace
 
@@ -95,3 +96,17 @@ def test_init_workspace_no_source_config(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "Warning" in captured.out
     assert (target / "config").exists()
+
+def test_main(tmp_path, monkeypatch):
+    from quantpits.scripts import init_workspace as iw
+    source = tmp_path / "Source"
+    source.mkdir()
+    (source / "config").mkdir()
+    target = tmp_path / "Target"
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--source', str(source), '--target', str(target)]):
+        iw.main()
+        
+    assert target.exists()
+    assert (target / "run_env.sh").exists()

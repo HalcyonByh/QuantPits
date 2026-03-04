@@ -24,6 +24,7 @@ def mock_env(monkeypatch, tmp_path):
     importlib.reload(env)
     importlib.reload(plot_model_opinions)
     
+    os.chdir(str(workspace))
     yield plot_model_opinions, out_dir
 
 def test_main_no_csv(mock_env, capsys, monkeypatch):
@@ -75,3 +76,24 @@ def test_rank_extraction_no_rank(mock_savefig, mock_env, capsys, monkeypatch):
     captured = capsys.readouterr()
     assert "已保存至" in captured.out
     mock_savefig.assert_called_once()
+
+def test_main_wrong_input(mock_env, capsys, monkeypatch):
+    pmo, out_dir = mock_env
+    monkeypatch.setattr('sys.argv', ['script.py', '--input', 'non_existent.csv'])
+    pmo.main()
+    captured = capsys.readouterr()
+    assert "找不到文件" in captured.out
+
+@patch('matplotlib.pyplot.savefig')
+def test_main_auto_find(mock_savefig, mock_env, capsys, monkeypatch):
+    pmo, out_dir = mock_env
+    # Create two files, auto-find should pick the latest (alphabetically)
+    (out_dir / "model_opinions_2020-01-01.csv").write_text("index,m1\nA,BUY (1)")
+    (out_dir / "model_opinions_2020-01-02.csv").write_text("index,m1\nA,BUY (1)")
+    
+    monkeypatch.setattr('sys.argv', ['script.py'])
+    pmo.main()
+    
+    captured = capsys.readouterr()
+    assert "正在读取数据: output/model_opinions_2020-01-02.csv" in captured.out
+    assert "已保存至" in captured.out
