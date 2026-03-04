@@ -830,7 +830,10 @@ def compare_combos(combo_results, anchor_date, output_dir, freq):
         }
         report_df = result.get('report_df')
         if report_df is not None:
-            initial_cash = BACKTEST_CONFIG['account']
+            import strategy
+            st_config = strategy.load_strategy_config()
+            bt_config = strategy.get_backtest_config(st_config)
+            initial_cash = bt_config['account']
             final_nav = report_df.iloc[-1]['account']
             total_return = (final_nav - initial_cash) / initial_cash
             ann_scaler = 52 if freq == 'week' else 252

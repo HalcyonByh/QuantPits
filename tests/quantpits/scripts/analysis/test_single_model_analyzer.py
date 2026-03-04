@@ -70,7 +70,33 @@ def test_calculate_rank_ic_empty():
     assert daily_ic.empty or ic_win_rate == 0.0
 
 
-# ── calculate_cusum ──────────────────────────────────────────────────────
+# ── calculate_ic_decay ───────────────────────────────────────────────────
+
+from unittest.mock import patch
+
+def test_calculate_ic_decay():
+    pred = _make_pred_df()
+    sma = SingleModelAnalyzer(pred)
+    
+    with patch('quantpits.scripts.analysis.single_model_analyzer.get_forward_returns') as mock_fwd:
+        with patch('quantpits.scripts.analysis.single_model_analyzer.load_market_config', return_value=("test_market", "test_bm")):
+            
+            # Make sure getting forward returns yields a valid overlapping df
+            ret_df = _make_returns_df()
+            mock_fwd.return_value = ret_df
+            
+            decay = sma.calculate_ic_decay(max_days=3)
+            
+            assert mock_fwd.call_count == 3
+            assert "T+1" in decay
+            assert "T+2" in decay
+            assert "T+3" in decay
+            assert isinstance(decay["T+1"], float)
+
+def test_calculate_ic_decay_empty():
+    pred = pd.DataFrame({"score": []}, index=pd.MultiIndex.from_arrays([[], []], names=["datetime", "instrument"]))
+    sma = SingleModelAnalyzer(pred)
+    assert sma.calculate_ic_decay() == {}
 
 def test_calculate_cusum():
     pred = _make_pred_df()
