@@ -30,7 +30,7 @@ QuantPits is built on top of [Microsoft Qlib](https://github.com/microsoft/qlib)
 ### 1.1 Install Qlib
 
 > [!WARNING]
-> Qlib installation may fail on Windows or certain Python versions due to C++ compilation or NumPy version conflicts. **Using Python 3.12 (or Linux/WSL)** is highly recommended for best compatibility.
+> Qlib installation may fail on Windows or certain Python versions due to C++ compilation or NumPy version conflicts. **Using Linux/WSL** is highly recommended for best compatibility (this project currently uses Python 3.12).
 
 ```bash
 pip install pyqlib
@@ -395,7 +395,7 @@ Output is saved to `output/ranking/Signal_<combo>_<date>_Top300.csv`.
 
 ## 9. Process Live-Trade Data (Post-Trade)
 
-> Steps 9-11 are only required when you have live-trading positions.
+> Steps 9-11 are only required when you have live-trading positions (currently the example is for the real trading data of Guotai Junan).
 
 The Post-Trade script processes settlement files exported from your broker, updating holdings and cash. **Fully decoupled from training/prediction/fusion modules.**
 
@@ -403,7 +403,7 @@ The Post-Trade script processes settlement files exported from your broker, upda
 
 1. Export settlement records (`.xlsx`) from your broker and place them in `data/`
 2. File naming convention: `YYYY-MM-DD-table.xlsx` (e.g., `2026-02-24-table.xlsx`)
-3. For non-trading days, use the empty template `emp-table.xlsx` (can be copied from `data/templates/emp-table.xlsx`)
+3. For non-trading days, use the empty template `emp-table.xlsx` (all empty cells)
 
 ### 9.2 Configure Cashflow (If Applicable)
 
