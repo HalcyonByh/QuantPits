@@ -29,15 +29,19 @@ QuantPits is built on top of [Microsoft Qlib](https://github.com/microsoft/qlib)
 
 ### 1.1 Install Qlib
 
+> [!WARNING]
+> Qlib installation may fail on Windows or certain Python versions due to C++ compilation or NumPy version conflicts. **Using Python 3.12 (or Linux/WSL)** is highly recommended for best compatibility.
+
 ```bash
 pip install pyqlib
 ```
 
 > For detailed installation instructions, see: https://github.com/microsoft/qlib#installation
 
-### 1.2 Install QuantPits Dependencies
+### 1.2 Download Project and Install Dependencies
 
 ```bash
+git clone https://github.com/DarkLink/QuantPits.git
 cd QuantPits
 pip install -r requirements.txt
 ```
@@ -49,6 +53,9 @@ pip install -e .
 ```
 
 ### 1.4 (Optional) Install CuPy for GPU Acceleration
+
+> [!NOTE]
+> CuPy is solely used to accelerate the **brute-force enumeration** during combination search, and is unrelated to Qlib model training. For GPU dependencies during model training itself (e.g., LightGBM, CatBoost), please refer to the official documentation of Qlib or the respective algorithms.
 
 If you want GPU-accelerated brute-force combination search (`brute_force_fast.py`), install CuPy for your CUDA version:
 
@@ -79,14 +86,13 @@ python -m qlib.run.get_data qlib_data \
 
 ### Option B: Third-Party Data Source (Recommended)
 
-The [investment_data](https://github.com/chenditc/investment_data) project continuously publishes up-to-date Qlib-formatted market data on its GitHub Releases page:
-
-1. Go to https://github.com/chenditc/investment_data/releases
-2. Download the latest `qlib_bin.tar.gz`
-3. Extract it to the Qlib data directory:
+The [investment_data](https://github.com/chenditc/investment_data) project continuously publishes up-to-date Qlib-formatted market data. You can download and extract it directly via:
 
 ```bash
 mkdir -p ~/.qlib/qlib_data/cn_data
+# Download the latest version using wget
+wget https://github.com/chenditc/investment_data/releases/latest/download/qlib_bin.tar.gz
+# Extract to the data directory
 tar -xzf qlib_bin.tar.gz -C ~/.qlib/qlib_data/cn_data
 ```
 
@@ -107,10 +113,15 @@ export QLIB_REGION="cn"
 
 QuantPits uses a **Workspace** mechanism to fully isolate configurations and data between instances. A `Demo_Workspace` template is included.
 
+> [!IMPORTANT]
+> **You must activate a workspace** before running any training, prediction, or live-trading scripts. If you restart your terminal, be sure to run the `source` command again!
+
 ### 3.1 Quick Start with the Demo Workspace
 
 ```bash
-cd QuantPits
+# Ensure you are in the project root:
+# cd QuantPits
+
 source workspaces/Demo_Workspace/run_env.sh
 ```
 
@@ -215,6 +226,9 @@ Key output files:
 - `output/predictions/<model>_<date>.csv` — Per-model prediction results
 - `output/model_performance_<date>.json` — Model IC/ICIR metrics
 
+> [!NOTE]
+> The `<date>` in file names represents the **prediction/trading date** (not the real system time when the script was run). This helps you easily locate historical data by date during backtesting and review.
+
 > See [01_TRAINING_GUIDE.md](01_TRAINING_GUIDE.md) for details.
 
 ---
@@ -243,6 +257,9 @@ Predictions are saved to `output/predictions/`, and `latest_train_records.json` 
 ## 6. Brute-Force Combination Search
 
 When you have ≥ 2 models, brute-force enumeration helps you find the optimal model combination.
+
+> [!WARNING]
+> **Note**: Exhaustive search and fusion require at least **2** trained models. If you are using the default Demo Workspace (which has only 1 model enabled), please first enable and train other models in `model_registry.yaml` before executing this step.
 
 ### 6.1 Prepare Combination Group File (Optional)
 
@@ -386,7 +403,7 @@ The Post-Trade script processes settlement files exported from your broker, upda
 
 1. Export settlement records (`.xlsx`) from your broker and place them in `data/`
 2. File naming convention: `YYYY-MM-DD-table.xlsx` (e.g., `2026-02-24-table.xlsx`)
-3. For non-trading days, use the empty template `emp-table.xlsx`
+3. For non-trading days, use the empty template `emp-table.xlsx` (can be copied from `data/templates/emp-table.xlsx`)
 
 ### 9.2 Configure Cashflow (If Applicable)
 
@@ -494,8 +511,13 @@ python quantpits/scripts/run_rolling_health_report.py
 
 ### Scenario A: First-Time Complete Run
 
+> [!WARNING]
+> Steps ② and ③ for combination search and fusion require at least 2 trained models. If testing under the Demo Workspace, please update `model_registry.yaml` to enable extra models first.
+
 ```bash
-cd QuantPits
+# Ensure you are in the project root
+# cd QuantPits
+
 source workspaces/Demo_Workspace/run_env.sh
 
 # ① Full training
@@ -529,7 +551,7 @@ python quantpits/scripts/order_gen.py
 
 > Or use the Makefile for a one-command daily pipeline (predict → fuse → post-trade → orders):
 > ```bash
-> make run-daily-pipeline
+> make run-daily-pipeline  # (Linux/macOS/WSL only)
 > ```
 
 ### Scenario C: Re-evaluate Model Combinations
