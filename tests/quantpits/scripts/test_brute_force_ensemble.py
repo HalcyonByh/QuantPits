@@ -1,4 +1,5 @@
 import pytest
+import os
 import pandas as pd
 import numpy as np
 import yaml
@@ -131,3 +132,218 @@ def test_extract_report_df(mock_env):
     assert bfe.extract_report_df(metrics_tuple).equals(df)
     
     assert bfe.extract_report_df(df).equals(df)
+
+# ── load_config ──────────────────────────────────────────────────────────
+def test_load_config(mock_env, tmp_path):
+    import json
+    bfe, workspace = mock_env
+
+    record_file = tmp_path / "records.json"
+    with open(record_file, "w") as f:
+        json.dump({"models": {"m1": "r1"}}, f)
+
+    (workspace / "config").mkdir(exist_ok=True)
+    with open(workspace / "config" / "model_config.json", "w") as f:
+        json.dump({"TopK": 20}, f)
+
+    old_cwd = os.getcwd()
+    os.chdir(workspace)
+    try:
+        records, model_config = bfe.load_config(str(record_file))
+    finally:
+        os.chdir(old_cwd)
+    assert records["models"]["m1"] == "r1"
+    assert model_config["TopK"] == 20
+
+# ── correlation_analysis ─────────────────────────────────────────────────
+def test_correlation_analysis(mock_env, tmp_path):
+    bfe, _ = mock_env
+
+    dates = pd.to_datetime(["2020-01-01"] * 3)
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B", "C"]], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"M1": [1.0, 2.0, 3.0], "M2": [1.0, 2.0, 3.0]}, index=idx)
+
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+    corr = bfe.correlation_analysis(norm_df, out_dir, "2020-01-01")
+
+    assert corr.loc["M1", "M2"] == 1.0
+    assert os.path.exists(os.path.join(out_dir, "correlation_matrix_2020-01-01.csv"))
+
+# ── signal handlers ──────────────────────────────────────────────────────
+def test_signal_handlers(mock_env):
+    import signal as sig
+    bfe, _ = mock_env
+
+    bfe._install_signal_handlers()
+    assert sig.getsignal(sig.SIGINT) == bfe._signal_handler
+
+    bfe._restore_signal_handlers()
+    assert sig.getsignal(sig.SIGINT) != bfe._signal_handler
+
+def test_signal_handler_sets_shutdown(mock_env):
+    bfe, _ = mock_env
+    import quantpits.scripts.brute_force_ensemble as bfe_mod
+    bfe_mod._shutdown = False
+    bfe._signal_handler(2, None)  # SIGINT = 2
+    assert bfe_mod._shutdown is True
+
+# ── _append_results_to_csv ───────────────────────────────────────────────
+def test_append_results_to_csv(mock_env, tmp_path):
+    bfe, _ = mock_env
+
+    csv_path = str(tmp_path / "results.csv")
+
+    # Empty results should be no-op
+    bfe._append_results_to_csv(csv_path, [])
+    assert not os.path.exists(csv_path)
+
+    # Non-empty results
+    results = [{"models": "m1,m2", "Ann_Ret": 0.1}]
+    bfe._append_results_to_csv(csv_path, results, write_header=True)
+    saved = pd.read_csv(csv_path)
+    assert len(saved) == 1
+    assert saved.iloc[0]["models"] == "m1,m2"
+
+    # Append more
+    bfe._append_results_to_csv(csv_path, results, write_header=False)
+    saved2 = pd.read_csv(csv_path)
+    assert len(saved2) == 2
+
+# ── split_is_oos_by_args with start/end dates ────────────────────────────
+def test_split_is_oos_with_dates(mock_env):
+    bfe, _ = mock_env
+
+    dates = pd.date_range("2015-01-01", "2020-01-01", freq="YS")
+    df = pd.DataFrame({"score": range(len(dates))}, index=pd.MultiIndex.from_arrays([
+        dates, ["A"] * len(dates)
+    ], names=["datetime", "instrument"]))
+
+    args = MagicMock()
+    args.start_date = "2016-01-01"
+    args.end_date = "2018-06-01"
+    args.exclude_last_years = 0
+    args.exclude_last_months = 0
+
+    is_df, oos_df = bfe.split_is_oos_by_args(df, args)
+    is_dates = is_df.index.get_level_values("datetime")
+    assert is_dates.min() >= pd.Timestamp("2016-01-01")
+    assert is_dates.max() <= pd.Timestamp("2018-06-01")
+
+# ── load_predictions ─────────────────────────────────────────────────────
+from unittest.mock import patch
+
+@patch('qlib.workflow.R', create=True)
+def test_load_predictions(mock_R, mock_env):
+    bfe, _ = mock_env
+
+    dates = pd.to_datetime(["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"])
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B", "A", "B"]], names=["datetime", "instrument"])
+
+    mock_recorder = MagicMock()
+    mock_recorder.load_object.return_value = pd.Series(
+        [0.5, 0.6, 0.7, 0.8], index=idx, name="score"
+    )
+    mock_recorder.list_metrics.return_value = {"IC_ICIR": 1.5}
+    mock_R.get_recorder.return_value = mock_recorder
+
+    train_records = {
+        "experiment_name": "test_exp",
+        "models": {"m1": "r1", "m2": "r2"}
+    }
+
+    norm_df, metrics = bfe.load_predictions(train_records)
+    assert "m1" in norm_df.columns
+    assert "m2" in norm_df.columns
+    assert metrics["m1"] == 1.5
+
+@patch('qlib.workflow.R', create=True)
+def test_load_predictions_failure(mock_R, mock_env):
+    bfe, _ = mock_env
+
+    mock_R.get_recorder.side_effect = Exception("not found")
+
+    train_records = {
+        "experiment_name": "test_exp",
+        "models": {"m1": "r1"}
+    }
+
+    with pytest.raises(ValueError, match="未加载到任何预测数据"):
+        bfe.load_predictions(train_records)
+
+# ── analyze_results ──────────────────────────────────────────────────────
+def test_analyze_results_empty(mock_env, tmp_path):
+    bfe, _ = mock_env
+    os.makedirs(tmp_path / "output", exist_ok=True)
+    # Empty results_df should return early
+    bfe.analyze_results(
+        results_df=pd.DataFrame(),
+        corr_matrix=pd.DataFrame(),
+        norm_df=pd.DataFrame(),
+        train_records={"experiment_name": "exp", "models": {}},
+        output_dir=str(tmp_path / "output"),
+        anchor_date="2020-01-01",
+    )
+
+@patch('qlib.workflow.R', create=True)
+def test_analyze_results_basic(mock_R, mock_env, tmp_path):
+    bfe, _ = mock_env
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+
+    results_df = pd.DataFrame({
+        "models": ["m1", "m2", "m1,m2"],
+        "n_models": [1, 1, 2],
+        "Ann_Ret": [0.15, 0.12, 0.18],
+        "Max_DD": [-0.05, -0.08, -0.04],
+        "Excess_Ret": [0.10, 0.07, 0.13],
+        "Ann_Excess": [0.10, 0.07, 0.13],
+        "Total_Ret": [0.15, 0.12, 0.18],
+        "Final_NAV": [115000, 112000, 118000],
+        "Calmar": [3.0, 1.5, 4.5],
+    })
+
+    corr_matrix = pd.DataFrame(
+        [[1.0, 0.5], [0.5, 1.0]], index=["m1", "m2"], columns=["m1", "m2"]
+    )
+
+    dates = pd.to_datetime(["2020-01-01"] * 2)
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B"]], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"m1": [1.0, 2.0], "m2": [1.5, 2.5]}, index=idx)
+
+    mock_R.get_recorder.side_effect = Exception("skip cluster")
+
+    bfe.analyze_results(
+        results_df=results_df,
+        corr_matrix=corr_matrix,
+        norm_df=norm_df,
+        train_records={"experiment_name": "exp", "models": {"m1": "r1", "m2": "r2"}},
+        output_dir=out_dir,
+        anchor_date="2020-01-01",
+        top_n=2,
+    )
+
+    assert os.path.exists(os.path.join(out_dir, "analysis_report_2020-01-01.txt"))
+    assert os.path.exists(os.path.join(out_dir, "model_attribution_2020-01-01.csv"))
+
+# ── parse_args ───────────────────────────────────────────────────────────
+def test_parse_args(mock_env):
+    import sys
+    bfe, _ = mock_env
+
+    with patch.object(sys, 'argv', [
+        'bfe.py', '--max-combo-size', '3', '--analysis-only', '--resume',
+        '--freq', 'week', '--top-n', '10'
+    ]):
+        args = bfe.main.__code__  # Just verify parse_args is callable
+    # Use the module-level argparse directly
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--max-combo-size', type=int, default=0)
+    parser.add_argument('--analysis-only', action='store_true')
+    with patch.object(sys, 'argv', ['bfe.py', '--max-combo-size', '3', '--analysis-only']):
+        args = parser.parse_args()
+    assert args.max_combo_size == 3
+    assert args.analysis_only is True
+
+

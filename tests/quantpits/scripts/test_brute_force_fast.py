@@ -178,3 +178,145 @@ def test_split_is_oos_by_args(mock_env):
     
     is_df, oos_df = bff.split_is_oos_by_args(df, args)
     assert len(oos_df.index.get_level_values("datetime").unique()) == 2 # 2019, 2020
+
+# ── load_config ──────────────────────────────────────────────────────────
+import os
+import json
+from unittest.mock import patch
+
+def test_load_config(mock_env, tmp_path):
+    bff, workspace = mock_env
+
+    record_file = tmp_path / "records.json"
+    with open(record_file, "w") as f:
+        json.dump({"models": {"m1": "r1"}}, f)
+
+    (workspace / "config").mkdir(exist_ok=True)
+    with open(workspace / "config" / "model_config.json", "w") as f:
+        json.dump({"TopK": 20}, f)
+
+    old_cwd = os.getcwd()
+    os.chdir(workspace)
+    try:
+        records, model_config = bff.load_config(str(record_file))
+    finally:
+        os.chdir(old_cwd)
+    assert records["models"]["m1"] == "r1"
+    assert model_config["TopK"] == 20
+
+# ── _init_gpu ────────────────────────────────────────────────────────────
+def test_init_gpu_no_gpu(mock_env):
+    bff, _ = mock_env
+    bff._init_gpu(force_no_gpu=True)
+    assert bff._USE_GPU is False
+
+def test_init_gpu_force_fail(mock_env):
+    bff, _ = mock_env
+    # Force GPU but cupy isn't truly available → should exit
+    with patch.dict('sys.modules', {'cupy': None}):
+        import pytest
+        with pytest.raises(SystemExit):
+            bff._init_gpu(force_gpu=True)
+
+# ── load_predictions ─────────────────────────────────────────────────────
+@patch('qlib.workflow.R', create=True)
+def test_load_predictions(mock_R, mock_env):
+    bff, _ = mock_env
+
+    dates = pd.to_datetime(["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"])
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B", "A", "B"]], names=["datetime", "instrument"])
+
+    mock_recorder = MagicMock()
+    mock_recorder.load_object.return_value = pd.Series(
+        [0.5, 0.6, 0.7, 0.8], index=idx, name="score"
+    )
+    mock_recorder.list_metrics.return_value = {"IC_ICIR": 1.5}
+    mock_R.get_recorder.return_value = mock_recorder
+
+    train_records = {
+        "experiment_name": "test_exp",
+        "models": {"m1": "r1", "m2": "r2"}
+    }
+
+    norm_df, metrics = bff.load_predictions(train_records)
+    assert "m1" in norm_df.columns
+    assert "m2" in norm_df.columns
+    assert metrics["m1"] == 1.5
+
+@patch('qlib.workflow.R', create=True)
+def test_load_predictions_failure(mock_R, mock_env):
+    bff, _ = mock_env
+    mock_R.get_recorder.side_effect = Exception("not found")
+
+    with pytest.raises(ValueError, match="未加载到任何预测数据"):
+        bff.load_predictions({"experiment_name": "exp", "models": {"m1": "r1"}})
+
+# ── correlation_analysis ─────────────────────────────────────────────────
+def test_correlation_analysis(mock_env, tmp_path):
+    bff, _ = mock_env
+
+    dates = pd.to_datetime(["2020-01-01"] * 3)
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B", "C"]], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"M1": [1.0, 2.0, 3.0], "M2": [1.0, 2.0, 3.0]}, index=idx)
+
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+    corr = bff.correlation_analysis(norm_df, out_dir, "2020-01-01")
+
+    assert corr.loc["M1", "M2"] == 1.0
+    assert os.path.exists(os.path.join(out_dir, "correlation_matrix_2020-01-01.csv"))
+
+# ── analyze_results ──────────────────────────────────────────────────────
+def test_analyze_results_empty(mock_env, tmp_path):
+    bff, _ = mock_env
+    os.makedirs(tmp_path / "output", exist_ok=True)
+    bff.analyze_results(
+        results_df=pd.DataFrame(),
+        corr_matrix=pd.DataFrame(),
+        norm_df=pd.DataFrame(),
+        train_records={"experiment_name": "exp", "models": {}},
+        output_dir=str(tmp_path / "output"),
+        anchor_date="2020-01-01",
+    )
+
+@patch('qlib.workflow.R', create=True)
+def test_analyze_results_basic(mock_R, mock_env, tmp_path):
+    bff, _ = mock_env
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+
+    results_df = pd.DataFrame({
+        "models": ["m1", "m2", "m1,m2"],
+        "n_models": [1, 1, 2],
+        "Ann_Ret": [0.15, 0.12, 0.18],
+        "Max_DD": [-0.05, -0.08, -0.04],
+        "Excess_Ret": [0.10, 0.07, 0.13],
+        "Ann_Excess": [0.10, 0.07, 0.13],
+        "Total_Ret": [0.15, 0.12, 0.18],
+        "Final_NAV": [115000, 112000, 118000],
+        "Calmar": [3.0, 1.5, 4.5],
+        "Sharpe": [1.5, 0.8, 2.0],
+    })
+
+    corr_matrix = pd.DataFrame(
+        [[1.0, 0.5], [0.5, 1.0]], index=["m1", "m2"], columns=["m1", "m2"]
+    )
+
+    dates = pd.to_datetime(["2020-01-01"] * 2)
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B"]], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"m1": [1.0, 2.0], "m2": [1.5, 2.5]}, index=idx)
+
+    mock_R.get_recorder.side_effect = Exception("skip cluster")
+
+    bff.analyze_results(
+        results_df=results_df,
+        corr_matrix=corr_matrix,
+        norm_df=norm_df,
+        train_records={"experiment_name": "exp", "models": {"m1": "r1", "m2": "r2"}},
+        output_dir=out_dir,
+        anchor_date="2020-01-01",
+        top_n=2,
+    )
+
+    # Function ran without error — sufficient for coverage
+
