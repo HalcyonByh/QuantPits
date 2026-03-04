@@ -7,6 +7,9 @@ joblib>=1.0.1
 statsmodels>=0.13.0
 streamlit>=1.10.0
 plotly>=5.9.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+tqdm>=4.60.0
 # cupy-cuda12x>=11.0.0 (Optional: For ultra-fast Brute Force combinatorial screening if using NVIDIA GPU)
 # qlib (Assuming Qlib is already installed in the environment)
 
