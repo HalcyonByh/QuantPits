@@ -39,11 +39,49 @@ def main():
     print(f"Market: {market}, Benchmark: {benchmark}")
     
     title_suffix = " (Shareable)" if args.shareable else ""
-    report = [f"# Comprehensive Analysis Report{title_suffix} ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"]
+    if args.shareable:
+        report = [f"# Comprehensive Analysis Report{title_suffix}"]
+    else:
+        report = [f"# Comprehensive Analysis Report{title_suffix} ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"]
     report.append("\n## Analysis Scope")
     report.append(f"- Models: {args.models if args.models else 'None (Portfolio/Execution Only)'}")
-    report.append(f"- Date Range: {args.start_date or 'Auto'} to {args.end_date or 'Auto'}")
+    def format_date_range(start_idx, end_idx):
+        if not args.shareable or pd.isna(start_idx) or pd.isna(end_idx):
+            return f"{start_idx} to {end_idx}"
+        try:
+            start_dt = pd.to_datetime(start_idx)
+            end_dt = pd.to_datetime(end_idx)
+            months = (end_dt.year - start_dt.year) * 12 + end_dt.month - start_dt.month
+            
+            def season(month):
+                if month in [12, 1, 2]: return "Winter"
+                if month in [3, 4, 5]: return "Spring"
+                if month in [6, 7, 8]: return "Summer"
+                return "Fall"
+                
+            start_str = f"{season(start_dt.month)} {start_dt.year}"
+            end_str = f"{season(end_dt.month)} {end_dt.year}"
+            return f"~{max(1, months)} Months ({start_str} - {end_str})"
+        except:
+            return "Redacted Range"
+
+    report.append(f"- Date Range: {format_date_range(args.start_date, args.end_date)}")
     
+    def format_count(val):
+        if not args.shareable: return str(val)
+        if pd.isna(val) or val == 0: return "0"
+        if val < 10: return str(int(val))
+        elif val < 100: return f"~{int(round(val, -1))}"
+        else: return f"~{int(round(val, -2))}"
+
+    def format_adv(val):
+        if not args.shareable: return f"{val:.4%}"
+        if pd.isna(val): return "N/A"
+        if val < 0.001: return "< 0.1%"
+        elif val < 0.01: return "< 1.0%"
+        elif val < 0.05: return "< 5.0%"
+        else: return "> 5.0%"
+
     # 1. Single Model Analysis & 2. Ensemble Analysis
     if args.models:
         print("Loading predictions...")
@@ -82,7 +120,10 @@ def main():
                 report.append("- **IC Decay Curve**:")
                 if ic_decay:
                     for k, v in ic_decay.items():
-                        report.append(f"  - {k}: {v:.4f}")
+                        if args.shareable:
+                            report.append(f"  - {k}: {v:.1f}")
+                        else:
+                            report.append(f"  - {k}: {v:.4f}")
                 else:
                     report.append("  - N/A")
                     
@@ -96,7 +137,10 @@ def main():
                     report.append("\n| Model | " + " | ".join(corr_matrix.columns) + " |")
                     report.append("| " + " | ".join(["---"] * (len(corr_matrix.columns) + 1)) + " |")
                     for idx, row in corr_matrix.iterrows():
-                        row_vals = [f"{val:.3f}" for val in row]
+                        if args.shareable:
+                            row_vals = [f"{val:.1f}" for val in row]
+                        else:
+                            row_vals = [f"{val:.3f}" for val in row]
                         report.append(f"| **{idx}** | " + " | ".join(row_vals) + " |")
                 else:
                     report.append("*N/A*")
@@ -106,16 +150,26 @@ def main():
                     report.append("\n### Marginal Contribution to Sharpe (Top 20%)")
                     report.append(f"- **Full Ensemble Equal-Weight Sharpe**: {marginal['Full_Ensemble_Sharpe']:.4f}")
                     for m, drop_sharpe in marginal['Marginal_Contributions'].items():
-                        report.append(f"  - Drop `{m}` -> impact on Sharpe: {drop_sharpe:+.4f}")
+                        if args.shareable:
+                            report.append(f"  - Drop `{m}` -> impact on Sharpe: {drop_sharpe:+.1f}")
+                        else:
+                            report.append(f"  - Drop `{m}` -> impact on Sharpe: {drop_sharpe:+.4f}")
                         
                 ensemble_metrics = ea.calculate_ensemble_ic_metrics(fwd_ret.dropna(), top_k=22, top_q=0.1, bottom_q=0.1)
                 if ensemble_metrics:
                     report.append("\n### Ensemble Combined Model Quality")
-                    report.append(f"- **Rank IC Mean**: {ensemble_metrics.get('Rank_IC_Mean', np.nan):.4f}")
-                    report.append(f"- **ICIR**: {ensemble_metrics.get('ICIR', np.nan):.4f}")
-                    report.append(f"- **IC Win Rate**: {ensemble_metrics.get('IC_Win_Rate', np.nan):.2%}")
-                    report.append(f"- **Decile Spread (Top 10% - Bottom 10%)**: {ensemble_metrics.get('Spread_Mean', np.nan):.4%}")
-                    report.append(f"- **Long-Only IC (Top 22)**: {ensemble_metrics.get('Long_Only_IC_Mean', np.nan):.4f}")
+                    if args.shareable:
+                        report.append(f"- **Rank IC Mean**: {ensemble_metrics.get('Rank_IC_Mean', np.nan):.1f}")
+                        report.append(f"- **ICIR**: {ensemble_metrics.get('ICIR', np.nan):.1f}")
+                        report.append(f"- **IC Win Rate**: {ensemble_metrics.get('IC_Win_Rate', np.nan):.1%}")
+                        report.append(f"- **Decile Spread (Top 10% - Bottom 10%)**: {ensemble_metrics.get('Spread_Mean', np.nan):.1%}")
+                        report.append(f"- **Long-Only IC (Top 22)**: {ensemble_metrics.get('Long_Only_IC_Mean', np.nan):.1f}")
+                    else:
+                        report.append(f"- **Rank IC Mean**: {ensemble_metrics.get('Rank_IC_Mean', np.nan):.4f}")
+                        report.append(f"- **ICIR**: {ensemble_metrics.get('ICIR', np.nan):.4f}")
+                        report.append(f"- **IC Win Rate**: {ensemble_metrics.get('IC_Win_Rate', np.nan):.2%}")
+                        report.append(f"- **Decile Spread (Top 10% - Bottom 10%)**: {ensemble_metrics.get('Spread_Mean', np.nan):.4%}")
+                        report.append(f"- **Long-Only IC (Top 22)**: {ensemble_metrics.get('Long_Only_IC_Mean', np.nan):.4f}")
                         
     # 3. Execution Friction
     print("Analyzing Execution Friction...")
@@ -144,34 +198,45 @@ def main():
             if df.empty or df[weight_col].sum() == 0: return 0.0
             return (df[col] * df[weight_col]).sum() / df[weight_col].sum()
             
-        report.append(f"- **Buy Transactions**: {len(buy_slip)}")
-        report.append(f"  - Vol-Weighted Delay Cost (Signal Close -> Exec Open): {weighted_avg(buy_slip, 'Delay_Cost'):.4%}")
-        report.append(f"  - Vol-Weighted Exec Slippage (Exec Open -> Exec): {weighted_avg(buy_slip, 'Exec_Slippage'):.4%}")
-        report.append(f"  - Vol-Weighted Total Friction (Buy): {weighted_avg(buy_slip, 'Total_Friction'):.4%}")
+        if args.shareable:
+            report.append(f"- **Buy Transactions (Quant)**:")
+            report.append(f"  - Vol-Weighted Total Implementation Shortfall (IS) (Signal -> Execution): {weighted_avg(buy_slip, 'Total_Friction'):.2%}")
+        else:
+            report.append(f"- **Buy Transactions**: {format_count(len(buy_slip))}")
+            report.append(f"  - Vol-Weighted Delay Cost (Signal Close -> Exec Open): {weighted_avg(buy_slip, 'Delay_Cost'):.4%}")
+            report.append(f"  - Vol-Weighted Exec Slippage (Exec Open -> Exec): {weighted_avg(buy_slip, 'Exec_Slippage'):.4%}")
+            report.append(f"  - Vol-Weighted Total Friction (Buy): {weighted_avg(buy_slip, 'Total_Friction'):.4%}")
         if 'Absolute_Slippage_Amount' in buy_slip.columns and not args.shareable:
             abs_slip_buy = buy_slip['Absolute_Slippage_Amount'].sum()
             report.append(f"  - Absolute Slippage Amount: {abs_slip_buy:.2f}")
-        if 'ADV_Participation_Rate' in buy_slip.columns:
+        if 'ADV_Participation_Rate' in buy_slip.columns and not args.shareable:
             buy_adv = buy_slip['ADV_Participation_Rate'].dropna()
             if not buy_adv.empty:
-                report.append(f"  - ADV Participation Rate (Mean / Max): {buy_adv.mean():.4%} / {buy_adv.max():.4%}")
+                report.append(f"  - ADV Participation Rate (Mean / Max): {format_adv(buy_adv.mean())} / {format_adv(buy_adv.max())}")
         
-        report.append(f"- **Sell Transactions**: {len(sell_slip)}")
-        report.append(f"  - Vol-Weighted Delay Cost (Signal Close -> Exec Open): {weighted_avg(sell_slip, 'Delay_Cost'):.4%}")
-        report.append(f"  - Vol-Weighted Exec Slippage (Exec Open -> Exec): {weighted_avg(sell_slip, 'Exec_Slippage'):.4%}")
-        report.append(f"  - Vol-Weighted Total Friction (Sell): {weighted_avg(sell_slip, 'Total_Friction'):.4%}")
+        if args.shareable:
+            report.append(f"- **Sell Transactions (Quant)**:")
+            report.append(f"  - Vol-Weighted Total Implementation Shortfall (IS) (Signal -> Execution): {weighted_avg(sell_slip, 'Total_Friction'):.2%}")
+        else:
+            report.append(f"- **Sell Transactions**: {format_count(len(sell_slip))}")
+            report.append(f"  - Vol-Weighted Delay Cost (Signal Close -> Exec Open): {weighted_avg(sell_slip, 'Delay_Cost'):.4%}")
+            report.append(f"  - Vol-Weighted Exec Slippage (Exec Open -> Exec): {weighted_avg(sell_slip, 'Exec_Slippage'):.4%}")
+            report.append(f"  - Vol-Weighted Total Friction (Sell): {weighted_avg(sell_slip, 'Total_Friction'):.4%}")
         if 'Absolute_Slippage_Amount' in sell_slip.columns and not args.shareable:
             abs_slip_sell = sell_slip['Absolute_Slippage_Amount'].sum()
             report.append(f"  - Absolute Slippage Amount: {abs_slip_sell:.2f}")
-        if 'ADV_Participation_Rate' in sell_slip.columns:
+        if 'ADV_Participation_Rate' in sell_slip.columns and not args.shareable:
             sell_adv = sell_slip['ADV_Participation_Rate'].dropna()
             if not sell_adv.empty:
-                report.append(f"  - ADV Participation Rate (Mean / Max): {sell_adv.mean():.4%} / {sell_adv.max():.4%}")
+                report.append(f"  - ADV Participation Rate (Mean / Max): {format_adv(sell_adv.mean())} / {format_adv(sell_adv.max())}")
 
     if explicit_costs:
         report.append("\n### Explicit Trading Costs & Dividends")
         fee_str = f" (Total explicit fees amount: {explicit_costs.get('total_fees', 0):.2f})" if not args.shareable else ""
-        report.append(f"- **Avg Transaction Fee Rate**: {explicit_costs.get('fee_ratio', 0):.4%}{fee_str}")
+        if args.shareable:
+            report.append(f"- **Avg Transaction Fee Rate**: ~{explicit_costs.get('fee_ratio', 0):.2%}")
+        else:
+            report.append(f"- **Avg Transaction Fee Rate**: {explicit_costs.get('fee_ratio', 0):.4%}{fee_str}")
         
         div_val = explicit_costs.get('total_dividend', 0)
         if args.shareable:
@@ -192,10 +257,17 @@ def main():
         if discrepancy.get('total_missed_count', 0) > 0:
             bias_val = discrepancy.get('substitute_bias_impact', 0)
             bias_str = "Lucky/Gain" if bias_val > 0 else "Unlucky/Loss"
-            report.append(f"- **Substitution Bias ({bias_str})**: {bias_val:.4%}")
-            report.append(f"  - Scope: Missed Top Buy Occurrences: {discrepancy.get('total_missed_count', 0)}, spread across {discrepancy.get('total_days_with_misses', 0)} trading days.")
-            report.append(f"  - Avg Missed Top Buys Expected Return: {discrepancy.get('avg_missed_buys_return', 0):.4%}")
-            report.append(f"  - Avg Actual Substitute Buys Return: {discrepancy.get('avg_substitute_buys_return', 0):.4%}")
+            days_str = format_count(discrepancy.get('total_days_with_misses', 0))
+            if args.shareable:
+                report.append(f"- **Substitution Bias ({bias_str})**: {bias_val:.1%}")
+                report.append(f"  - Scope: Missed Top Buy Occurrences: {format_count(discrepancy.get('total_missed_count', 0))}.")
+                report.append(f"  - Avg Missed Top Buys Expected Return: {discrepancy.get('avg_missed_buys_return', 0):.1%}")
+                report.append(f"  - Avg Actual Substitute Buys Return: {discrepancy.get('avg_substitute_buys_return', 0):.1%}")
+            else:
+                report.append(f"- **Substitution Bias ({bias_str})**: {bias_val:.4%}")
+                report.append(f"  - Scope: Missed Top Buy Occurrences: {format_count(discrepancy.get('total_missed_count', 0))}, spread across {days_str} trading days.")
+                report.append(f"  - Avg Missed Top Buys Expected Return: {discrepancy.get('avg_missed_buys_return', 0):.4%}")
+                report.append(f"  - Avg Actual Substitute Buys Return: {discrepancy.get('avg_substitute_buys_return', 0):.4%}")
         else:
             report.append("- No measurable substitution bias or date mismatch for buys.")
             
@@ -206,8 +278,12 @@ def main():
             return (clean_df[col] * clean_df[weight_col]).sum() / clean_df[weight_col].sum()
             
         report.append("\n### Intra-trade Path Excursions")
-        report.append(f"- **Vol-Weighted MFE (Max Favorable Relative to Exec)**: {weighted_avg(path_df, 'MFE'):.4%}")
-        report.append(f"- **Vol-Weighted MAE (Max Adverse Relative to Exec)**: {weighted_avg(path_df, 'MAE'):.4%}")
+        if args.shareable:
+            report.append(f"- **Vol-Weighted MFE (Max Favorable Relative to Exec)**: {weighted_avg(path_df, 'MFE'):.2%}")
+            report.append(f"- **Vol-Weighted MAE (Max Adverse Relative to Exec)**: {weighted_avg(path_df, 'MAE'):.2%}")
+        else:
+            report.append(f"- **Vol-Weighted MFE (Max Favorable Relative to Exec)**: {weighted_avg(path_df, 'MFE'):.4%}")
+            report.append(f"- **Vol-Weighted MAE (Max Adverse Relative to Exec)**: {weighted_avg(path_df, 'MAE'):.4%}")
 
     # 4. Portfolio Return & Risk
     print("Analyzing Portfolio & Traditional Risk...")
@@ -225,34 +301,74 @@ def main():
         report.append("### Holding Analytics")
         for k, v in holding_metrics.items():
             if k == 'Avg_Daily_Holdings_Count':
-                report.append(f"- **{k}**: {v:.1f}")
+                if args.shareable:
+                    report.append(f"- **{k}**: {format_count(v)}")
+                else:
+                    report.append(f"- **{k}**: {v:.1f}")
             else:
                 report.append(f"- **{k}**: {v:.2%}")
 
     report.append("\n### Traditional Return & Risk")
     if metrics:
+        def format_fuzzy_days(val):
+            if pd.isna(val): return "N/A"
+            if val < 5: return "< 5 days"
+            rounded = int(round(val / 5.0) * 5)
+            if rounded == 0: return "~0 days"
+            lower = max(0, rounded - 5)
+            upper = rounded + 5
+            return f"{lower}-{upper} days"
+
         for k, v in metrics.items():
             if k in ['CAGR', 'Excess_Return_CAGR']:
-                report.append(f"- **{k} (252-day basis)**: {v:.2%}")
-            elif k in ['Absolute_Return', 'Benchmark_Absolute_Return', 'Benchmark_CAGR', 'Volatility', 'Benchmark_Volatility', 'Tracking_Error', 'Max_Drawdown', 'Benchmark_Max_Drawdown', 'Realized_Trade_Win_Rate', 'Turnover_Rate_Annual']:
-                report.append(f"- **{k}**: {v:.2%}")
+                if args.shareable:
+                    report.append(f"- **{k} (252-day basis)**: {v:.1%}")
+                else:
+                    report.append(f"- **{k} (252-day basis)**: {v:.2%}")
+            elif k in ['Absolute_Return', 'Benchmark_Absolute_Return', 'Benchmark_CAGR', 'Volatility', 'Benchmark_Volatility', 'Tracking_Error', 'Max_Drawdown', 'Benchmark_Max_Drawdown', 'Realized_Trade_Win_Rate']:
+                if args.shareable:
+                    report.append(f"- **{k}**: {v:.1%}")
+                else:
+                    report.append(f"- **{k}**: {v:.2%}")
+            elif k == 'Turnover_Rate_Annual':
+                if args.shareable:
+                    report.append(f"- **{k}**: ~{v:.1f}x")
+                else:
+                    report.append(f"- **{k}**: {v:.2f}x")
             elif k in ['Max_Time_Under_Water_Days', 'Benchmark_Max_Time_Under_Water_Days', 'Avg_Time_Under_Water_Days', 'Benchmark_Avg_Time_Under_Water_Days', 'Days_Below_Initial_Capital']:
-                report.append(f"- **{k}**: {v:.0f}")
+                if args.shareable:
+                    report.append(f"- **{k}**: {format_fuzzy_days(v)}")
+                else:
+                    report.append(f"- **{k}**: {v:.0f}")
             else:
-                report.append(f"- **{k}**: {v:.4f}")
+                if args.shareable:
+                    report.append(f"- **{k}**: {v:.1f}")
+                else:
+                    report.append(f"- **{k}**: {v:.4f}")
                 
     if exposure:
         factor_ann = exposure.pop('Factor_Annualized', {})
         beta = exposure.get('Beta_Market', 0)
         
-        report.append(f"\n### Factor Exposure ({market} Basis)")
+        report.append(f"\n### Factor Exposure ({'Redacted' if args.shareable else market} Basis)")
+        # Removed format_factor qualitative rounding
+
         for k, v in exposure.items():
             if 'R_Squared' in k:
-                report.append(f"- **{k}**: {v:.4f}")
+                if args.shareable:
+                    report.append(f"- **{k}**: {v:.2f}")
+                else:
+                    report.append(f"- **{k}**: {v:.4f}")
             elif 'Alpha' in k or 'Intercept' in k:
-                report.append(f"- **{k}**: {v:.4%}")
+                if args.shareable:
+                    report.append(f"- **{k}**: {v:.1%}")
+                else:
+                    report.append(f"- **{k}**: {v:.4%}")
             else:
-                report.append(f"- **{k}**: {v:.4f}")
+                if args.shareable:
+                    report.append(f"- **{k}**: {v:.2f}")
+                else:
+                    report.append(f"- **{k}**: {v:.4f}")
                 
         if metrics.get('CAGR') is not None and metrics.get('Benchmark_CAGR') is not None and not pd.isna(metrics.get('CAGR')):
             cagr = metrics['CAGR']
@@ -275,11 +391,18 @@ def main():
             cagr_gap = cagr - arithmetic_total
             
             report.append("\n### Performance Attribution")
-            report.append(f"- **Total Strategy CAGR**: {cagr:.2%}")
-            report.append(f"  - Beta Return (Exposure to Market): {beta_ret:.2%}")
-            report.append(f"  - Style Alpha (Exposure to Risk Factors): {style_ret:.2%}")
-            report.append(f"  - Idiosyncratic Alpha (Stock Selection / Timing): {idio_alpha:.2%}")
-            report.append(f"  - Math/Compounding Gap (Residual): {cagr_gap:.2%}")
+            if args.shareable:
+                report.append(f"- **Total Strategy CAGR**: {cagr:.1%}")
+                report.append(f"  - Beta Return (Exposure to Market): {beta_ret:.1%}")
+                report.append(f"  - Style Alpha (Exposure to Risk Factors): {style_ret:.1%}")
+                report.append(f"  - Idiosyncratic Alpha (Stock Selection / Timing): {idio_alpha:.1%}")
+                report.append(f"  - Math/Compounding Gap (Residual): {cagr_gap:.1%}")
+            else:
+                report.append(f"- **Total Strategy CAGR**: {cagr:.2%}")
+                report.append(f"  - Beta Return (Exposure to Market): {beta_ret:.2%}")
+                report.append(f"  - Style Alpha (Exposure to Risk Factors): {style_ret:.2%}")
+                report.append(f"  - Idiosyncratic Alpha (Stock Selection / Timing): {idio_alpha:.2%}")
+                report.append(f"  - Math/Compounding Gap (Residual): {cagr_gap:.2%}")
             
     # 5. Trade Classification & Manual Impact
     print("Analyzing Trade Classification & Manual Impact...")
@@ -290,15 +413,18 @@ def main():
         
         # Classification Distribution
         report.append("\n### Classification Distribution")
-        col_name = "Amount Pct" if args.shareable else "Total Amount"
-        report.append(f"| Class | Count | Pct | {col_name} |")
-        report.append("|-------|-------|-----|--------------|")
+        if args.shareable:
+            report.append("| Class | Count | Pct |")
+            report.append("|-------|-------|-----|")
+        else:
+            col_name = "Total Amount"
+            report.append(f"| Class | Count | Pct | {col_name} |")
+            report.append("|-------|-------|-----|--------------|")
         
         # We need the full trade log to get amounts
         trade_log = exec_a.trade_log
         if not trade_log.empty and 'trade_class' in trade_log.columns:
             total_trades = len(trade_log)
-            total_amt_all = trade_log['成交金额'].sum() if '成交金额' in trade_log.columns else 1.0
             if total_trades > 0:
                 for cls, label in [('S', 'SIGNAL'), ('A', 'SUBSTITUTE'), ('M', 'MANUAL')]:
                     subset = trade_log[trade_log['trade_class'] == cls]
@@ -306,21 +432,19 @@ def main():
                     pct = count / total_trades
                     amt = subset['成交金额'].sum() if '成交金额' in subset.columns else 0.0
                     if args.shareable:
-                        amt_str = f"{amt / total_amt_all:.1%}" if total_amt_all > 0 else "0.0%"
+                        report.append(f"| {label} | {format_count(count)} | {pct:.1%} |")
                     else:
                         amt_str = f"¥{amt:,.0f}"
-                    report.append(f"| {label} | {count} | {pct:.1%} | {amt_str} |")
+                        report.append(f"| {label} | {format_count(count)} | {pct:.1%} | {amt_str} |")
                     
-        # Quantitative Performance
-        quant_cagr_str = "N/A (Rigorous separation coming in v2)"
-        report.append("\n### Quantitative-Only Performance")
-        report.append(f"- Quant CAGR: {quant_cagr_str}")
-        
-        # Manual Trade Details
-        report.append("\n### Manual Trade Details")
-        if args.shareable:
-            report.append("*Manual trade details redacted for privacy.*")
-        else:
+        # Quantitative Performance & Details
+        if not args.shareable:
+            quant_cagr_str = "N/A (Rigorous separation coming in v2)"
+            report.append("\n### Quantitative-Only Performance")
+            report.append(f"- Quant CAGR: {quant_cagr_str}")
+            
+            # Manual Trade Details
+            report.append("\n### Manual Trade Details")
             manual_buys = class_returns['manual_buys']
             manual_sells = class_returns['manual_sells']
             
@@ -343,6 +467,9 @@ def main():
                         
                 report.append("\n*(Detailed manual trade PnL tracking and T+5 returns require dual-ledger system integration)*")
             
+    if args.shareable:
+        report.append("\n---\n**Disclaimer**: This report is for informational purposes only and does not constitute financial advice. Sensitive data, including market names, monetary amounts, and specific transaction details, have been redacted or rounded. Performance metrics shown are based on historical data and do not guarantee future results.")
+
     # Write report
     report_text = "\n".join(report)
     out_path = os.path.join(ROOT_DIR, args.output)

@@ -9,7 +9,7 @@ coverage:
     project:
       default:
         target: auto      # target is the previous commit's coverage
-        threshold: 5%     # allow the overall coverage to drop by up to 2%
+        threshold: 5%     # allow the overall coverage to drop by up to 5%
     patch:
       default:
         target: 50%       # relax patch coverage requirement to 50%

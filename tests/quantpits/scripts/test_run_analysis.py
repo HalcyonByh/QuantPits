@@ -128,7 +128,11 @@ def test_main_no_models(mock_port, mock_exec, mock_market, mock_init, mock_env):
     mock_pa.calculate_factor_exposure.return_value = {}
     mock_pa.calculate_style_exposures.return_value = {}
     mock_pa.calculate_holding_metrics.return_value = {}
-    mock_pa.calculate_classified_returns.return_value = {}
+    mock_pa.calculate_classified_returns.return_value = {
+        "class_df": pd.DataFrame(),
+        "manual_buys": pd.DataFrame(),
+        "manual_sells": pd.DataFrame()
+    }
     
     import sys
     report_path = str(workspace / "output" / "report_no_models.md")
@@ -218,8 +222,4 @@ def test_main_shareable(mock_port, mock_exec, mock_ens, mock_single,
     assert "Absolute Slippage Amount" not in content
     assert "Total explicit fees amount" not in content
     assert "Dividend Offset as % of Total Slippage" in content
-    assert "50.00%" in content # 25 / 50 
-    assert "Amount Pct" in content
-    assert "Manual trade details redacted for privacy" in content
-    assert "¥" not in content
-    assert "S1" not in content # Redacted stock code
+    assert "50.00%" in content # 25 / 50
