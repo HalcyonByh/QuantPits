@@ -87,12 +87,13 @@ def test_resolve_target_models_filter(mock_env):
     assert "m1" in targets
     assert len(targets) == 1
 
+@patch('quantpits.scripts.env.init_qlib')
 @patch('train_utils.train_single_model')
 @patch('train_utils.save_run_state')
 @patch('train_utils.print_model_table')
 @patch('quantpits.scripts.incremental_train.resolve_target_models')
 @patch('quantpits.scripts.train_utils.calculate_dates')
-def test_run_incremental_train_failed(mock_dates, mock_resolve, mock_print_tbl, mock_save, mock_train, mock_env):
+def test_run_incremental_train_failed(mock_dates, mock_resolve, mock_print_tbl, mock_save, mock_train, mock_init, mock_env):
     it, workspace = mock_env
     args = MagicMock()
     args.models = "m1"
@@ -185,7 +186,7 @@ def test_main_no_selection(mock_env):
     with patch('quantpits.scripts.incremental_train.parse_args', return_value=args):
         it.main() # Should print error and return
 
-@patch('quantpits.scripts.incremental_train.init_qlib', create=True)
+@patch('quantpits.scripts.env.init_qlib')
 @patch('train_utils.calculate_dates')
 @patch('train_utils.train_single_model')
 @patch('train_utils.merge_train_records')
@@ -193,8 +194,7 @@ def test_main_no_selection(mock_env):
 @patch('train_utils.clear_run_state')
 @patch('train_utils.print_model_table')
 @patch('quantpits.scripts.incremental_train.resolve_target_models')
-@patch('quantpits.scripts.env.safeguard')
-def test_run_incremental_train_success(mock_safeguard, mock_resolve, mock_print_tbl, mock_clear, mock_save, mock_merge, mock_train, mock_dates, mock_init, mock_env):
+def test_run_incremental_train_success(mock_resolve, mock_print_tbl, mock_clear, mock_save, mock_merge, mock_train, mock_dates, mock_init, mock_env):
     it, workspace = mock_env
     args = MagicMock()
     args.models = "m1"
