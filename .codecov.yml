@@ -1,0 +1,16 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...100"
+  status:
+    project:
+      default:
+        target: auto      # target is the previous commit's coverage
+        threshold: 5%     # allow the overall coverage to drop by up to 2%
+    patch:
+      default:
+        target: 50%       # relax patch coverage requirement to 50%
+        # informational: true  # uncomment this if you never want patch coverage to fail the CI
