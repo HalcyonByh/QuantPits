@@ -93,7 +93,7 @@ mkdir -p ~/.qlib/qlib_data/cn_data
 # Download the latest version using wget
 wget https://github.com/chenditc/investment_data/releases/latest/download/qlib_bin.tar.gz
 # Extract to the data directory
-tar -xzf qlib_bin.tar.gz -C ~/.qlib/qlib_data/cn_data
+tar -zxvf qlib_bin.tar.gz -C ~/.qlib/qlib_data/cn_data --strip-components=1
 ```
 
 > See https://github.com/chenditc/investment_data for update frequency and data details.
@@ -105,6 +105,12 @@ If your data is stored elsewhere, configure it in your workspace's `run_env.sh`:
 ```bash
 export QLIB_DATA_DIR="/your/custom/path/cn_data"
 export QLIB_REGION="cn"
+```
+If using Windows PowerShell, configure it in your workspace's `run_env.ps1`:
+
+```powershell
+$env:QLIB_DATA_DIR = "X:/your/custom/path/cn_data"
+$env:QLIB_REGION = "cn"
 ```
 
 ---
@@ -123,9 +129,17 @@ QuantPits uses a **Workspace** mechanism to fully isolate configurations and dat
 # cd QuantPits
 
 source workspaces/Demo_Workspace/run_env.sh
+
+# For Windows
+. ./workspaces/Demo_Workspace/run_env.ps1
 ```
 
 Output: `Workspace activated: .../Demo_Workspace` confirms successful activation.
+
+**Note for Windows:** If this is your first time running a `.ps1` script, PowerShell may block execution. You need to run PowerShell as **Administrator** and execute:
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
 
 ### 3.2 Create a New Workspace
 
@@ -138,12 +152,15 @@ python quantpits/scripts/init_workspace.py \
 This will:
 - Clone all configuration files from `Demo_Workspace/config/`
 - Create empty `data/`, `output/`, `archive/`, and `mlruns/` directories
-- Generate a `run_env.sh` environment activation script
+- Generate a `run_env.sh` (Linux) and `run_env.ps1` (Windows) environment activation script
 
 ### 3.3 Activate the New Workspace
 
 ```bash
 source workspaces/MyWorkspace/run_env.sh
+
+# For Windows
+. ./workspaces/MyWorkspace/run_env.ps1
 ```
 
 ### 3.4 Workspace Directory Structure
@@ -162,7 +179,8 @@ workspaces/MyWorkspace/
 ├── output/                         # Output files
 ├── archive/                        # Historical archives
 ├── mlruns/                         # MLflow tracking
-└── run_env.sh                      # Environment activation script
+├── run_env.ps1                     # Environment activation script (Win)
+└── run_env.sh                      # Environment activation script (Linux)
 ```
 
 ---
@@ -403,7 +421,7 @@ The Post-Trade script processes settlement files exported from your broker, upda
 
 1. Export settlement records (`.xlsx`) from your broker and place them in `data/`
 2. File naming convention: `YYYY-MM-DD-table.xlsx` (e.g., `2026-02-24-table.xlsx`)
-3. For non-trading days, use the empty template `emp-table.xlsx` (all empty cells)
+3. For non-trading days, use the empty template `emp-table.xlsx` (an empty Excel file)
 
 ### 9.2 Configure Cashflow (If Applicable)
 
@@ -520,6 +538,9 @@ python quantpits/scripts/run_rolling_health_report.py
 
 source workspaces/Demo_Workspace/run_env.sh
 
+# For Windows
+. ./workspaces/Demo_Workspace/run_env.ps1
+
 # ① Full training
 python quantpits/scripts/prod_train_predict.py
 
@@ -536,10 +557,13 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 cd QuantPits
 source workspaces/MyWorkspace/run_env.sh
 
+# For Windows
+. ./workspaces/MyWorkspace/run_env.ps1
+
 # ① Predict
 python quantpits/scripts/prod_predict_only.py --all-enabled
+```
 
-# ② Fuse
 python quantpits/scripts/ensemble_fusion.py --from-config-all
 
 # ③ Post-Trade (if live trading)
