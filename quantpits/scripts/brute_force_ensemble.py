@@ -40,6 +40,7 @@ import itertools
 import logging
 import argparse
 import yaml
+import warnings
 from datetime import datetime
 from collections import Counter
 from itertools import chain
@@ -395,6 +396,11 @@ def run_single_backtest(
         trade_exchange=trade_exchange
     )
 
+    import copy
+    st_config = copy.deepcopy(st_config)
+    st_config["strategy"]["params"]["topk"] = top_k
+    st_config["strategy"]["params"]["n_drop"] = drop_n
+
     strategy_inst = strategy.create_backtest_strategy(combo_score, st_config)
     # 策略需要关联 infra
     strategy_inst.reset_common_infra(common_infra)
@@ -408,13 +414,15 @@ def run_single_backtest(
 
     # 3. 回测
     try:
-        # 使用 backtest_loop 直接运行，避免 backtest() 函数内部重建 Exchange
-        raw_portfolio_metrics, _ = backtest_loop(
-            start_time=bt_start,
-            end_time=bt_end,
-            trade_strategy=strategy_inst,
-            trade_executor=executor_obj,
-        )
+        with np.errstate(divide='ignore', invalid='ignore'), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            # 使用 backtest_loop 直接运行，避免 backtest() 函数内部重建 Exchange
+            raw_portfolio_metrics, _ = backtest_loop(
+                start_time=bt_start,
+                end_time=bt_end,
+                trade_strategy=strategy_inst,
+                trade_executor=executor_obj,
+            )
 
         # 4. 提取结果
         report = extract_report_df(raw_portfolio_metrics)

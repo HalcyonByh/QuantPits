@@ -333,6 +333,53 @@ def test_analyze_results_basic(mock_R, mock_env, tmp_path):
     assert os.path.exists(os.path.join(out_dir, "analysis_report_2020-01-01.txt"))
     assert os.path.exists(os.path.join(out_dir, "model_attribution_2020-01-01.csv"))
 
+@patch('qlib.workflow.R', create=True)
+def test_analyze_results_fallback(mock_R, mock_env, tmp_path):
+    bfe, _ = mock_env
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Less than 2 models (should skip clustering and optimization plots without crashing)
+    results_df = pd.DataFrame({
+        "models": ["m1"],
+        "n_models": [1],
+        "Ann_Ret": [0.15],
+        "Max_DD": [-0.05],
+        "Excess_Ret": [0.10],
+        "Ann_Excess": [0.10],
+        "Total_Ret": [0.15],
+        "Final_NAV": [115000],
+        "Calmar": [3.0],
+    })
+
+    corr_matrix = pd.DataFrame([[1.0]], index=["m1"], columns=["m1"])
+
+    dates = pd.to_datetime(["2020-01-01"] * 2)
+    idx = pd.MultiIndex.from_arrays([dates, ["A", "B"]], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"m1": [1.0, 2.0]}, index=idx)
+
+    mock_recorder = MagicMock()
+    mock_report = pd.DataFrame({
+        "return": [0.01, 0.02],
+        "bench": [0.005, 0.005]
+    }, index=dates)
+    mock_recorder.load_object.return_value = mock_report
+    mock_R.get_recorder.return_value = mock_recorder
+
+    with patch('matplotlib.pyplot.savefig'):
+        bfe.analyze_results(
+            results_df=results_df,
+            corr_matrix=corr_matrix,
+            norm_df=norm_df,
+            train_records={"experiment_name": "exp", "models": {"m1": "r1"}},
+            output_dir=out_dir,
+            anchor_date="2020-01-01",
+            top_n=2
+        )
+
+    # Assure it succeeds and writes the report
+    assert os.path.exists(os.path.join(out_dir, "analysis_report_2020-01-01.txt"))
+
 # ── parse_args ───────────────────────────────────────────────────────────
 def test_parse_args(mock_env):
     import sys
@@ -388,6 +435,75 @@ def test_run_single_backtest_success(mock_create_strat, mock_executor, mock_acco
     assert res["Ann_Ret"] > 0
     assert "m1" in res["models"]
 
+@patch('strategy.get_backtest_config')
+@patch('strategy.load_strategy_config')
+@patch('qlib.backtest.backtest_loop')
+@patch('qlib.backtest.account.Account')
+@patch('qlib.backtest.executor.SimulatorExecutor')
+@patch('strategy.create_backtest_strategy')
+def test_run_single_backtest_with_config(mock_create_strat, mock_executor, mock_account, mock_bt_loop, mock_load_st, mock_get_bt, mock_env):
+    bfe, _ = mock_env
+    # Setup configs
+    mock_load_st.return_value = {"strategy": {"params": {}}}
+    mock_get_bt.return_value = {"account": 1000, "exchange_kwargs": {"freq": "day"}}
+    
+    # Setup mocks
+    mock_strat = MagicMock()
+    mock_create_strat.return_value = mock_strat
+    
+    # Mock report from backtest_loop
+    mock_report = pd.DataFrame({
+        "account": [100.0, 110.0],
+        "return": [0.0, 0.1],
+        "bench": [100.0, 105.0]
+    }, index=pd.to_datetime(["2020-01-01", "2020-01-02"]))
+    mock_bt_loop.return_value = ({"fold1": (mock_report, "other")}, None)
+    
+    norm_df = pd.DataFrame({"m1": [0.5, 0.6]}, index=pd.MultiIndex.from_tuples([
+        (pd.to_datetime("2020-01-01"), "A"), (pd.to_datetime("2020-01-02"), "A")
+    ], names=["datetime", "instrument"]))
+    
+    res = bfe.run_single_backtest(
+        combo_models=["m1"], norm_df=norm_df, top_k=10, drop_n=2, 
+        benchmark="SH000300", freq="day", trade_exchange=MagicMock(),
+        bt_start="2020-01-01", bt_end="2020-01-02",
+        st_config=None, bt_config=None  # Force fallback
+    )
+    
+    assert res is not None
+    # Verify the injected config check
+    mock_create_strat.assert_called_once()
+    called_config = mock_create_strat.call_args[0][1]
+    assert called_config["strategy"]["params"]["topk"] == 10
+    assert called_config["strategy"]["params"]["n_drop"] == 2
+
+@patch('qlib.backtest.backtest_loop')
+@patch('qlib.backtest.account.Account')
+@patch('qlib.backtest.executor.SimulatorExecutor')
+@patch('strategy.create_backtest_strategy')
+def test_run_single_backtest_exception(mock_create_strat, mock_executor, mock_account, mock_bt_loop, mock_env):
+    bfe, _ = mock_env
+    
+    mock_strat = MagicMock()
+    mock_create_strat.return_value = mock_strat
+    
+    # Force exception
+    mock_bt_loop.side_effect = Exception("Intentional backtest exception")
+    
+    norm_df = pd.DataFrame({"m1": [0.5]}, index=pd.MultiIndex.from_tuples([
+        (pd.to_datetime("2020-01-01"), "A")
+    ], names=["datetime", "instrument"]))
+    
+    res = bfe.run_single_backtest(
+        combo_models=["m1"], norm_df=norm_df, top_k=1, drop_n=0, 
+        benchmark="SH000300", freq="day", trade_exchange=MagicMock(),
+        bt_start="2020-01-01", bt_end="2020-01-01",
+        st_config={"strategy": {"params": {}}},
+        bt_config={"account": 100}
+    )
+    
+    assert res is None
+
 @patch('qlib.backtest.exchange.Exchange', create=True)
 @patch('quantpits.scripts.brute_force_ensemble.run_single_backtest')
 def test_brute_force_backtest_basic(mock_run_bt, mock_exchange, mock_env, tmp_path):
@@ -415,6 +531,74 @@ def test_brute_force_backtest_basic(mock_run_bt, mock_exchange, mock_env, tmp_pa
     assert len(results) == 2 # m1 and m2
     assert os.path.exists(os.path.join(out_dir, "brute_force_results_2020-01-01.csv"))
 
+@patch('qlib.backtest.exchange.Exchange', create=True)
+@patch('quantpits.scripts.brute_force_ensemble.run_single_backtest')
+def test_brute_force_backtest_resume(mock_run_bt, mock_exchange, mock_env, tmp_path):
+    bfe, _ = mock_env
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+    
+    # Create an existing result CSV
+    csv_path = os.path.join(out_dir, "brute_force_results_2020-01-01.csv")
+    existing_df = pd.DataFrame({
+        "models": ["m1"], "n_models": [1], "Ann_Ret": [0.1], "Max_DD": [-0.05],
+        "Excess_Ret": [0.05], "Ann_Excess": [0.05], "Total_Ret": [0.1], "Final_NAV": [110000], "Calmar": [2.0]
+    })
+    existing_df.to_csv(csv_path, index=False)
+    
+    idx = pd.MultiIndex.from_product([pd.to_datetime(["2020-01-01"]), ["A"]], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"m1": [0.5], "m2": [0.4]}, index=idx)
+    
+    mock_run_bt.return_value = {
+        "models": "m2", "n_models": 1, "Ann_Ret": 0.2, "Max_DD": -0.05,
+        "Excess_Ret": 0.1, "Ann_Excess": 0.1, "Total_Ret": 0.2, "Final_NAV": 120000, "Calmar": 4.0
+    }
+    
+    results = bfe.brute_force_backtest(
+        norm_df=norm_df, top_k=1, drop_n=0, benchmark="SH000300", freq="day",
+        min_combo_size=1, max_combo_size=1, output_dir=out_dir, anchor_date="2020-01-01",
+        resume=True, n_jobs=1
+    )
+    
+    assert len(results) == 2
+    assert set(results["models"]) == {"m1", "m2"}
+    mock_run_bt.assert_called_once() # Only called for m2
+
+@patch('qlib.backtest.exchange.Exchange', create=True)
+@patch('quantpits.scripts.brute_force_ensemble.run_single_backtest')
+def test_brute_force_backtest_shutdown_signal(mock_run_bt, mock_exchange, mock_env, tmp_path):
+    bfe, _ = mock_env
+    out_dir = str(tmp_path / "output")
+    os.makedirs(out_dir, exist_ok=True)
+    
+    idx = pd.MultiIndex.from_product([pd.to_datetime(["2020-01-01"]), ["A"]], names=["datetime", "instrument"])
+    # 3 models to trigger multiple batches if batch_size=1
+    norm_df = pd.DataFrame({"m1": [0.5], "m2": [0.4], "m3": [0.6]}, index=idx)
+    
+    def side_effect_run_bt(combo, *args, **kwargs):
+        # Trigger shutdown during the first model evaluation
+        import quantpits.scripts.brute_force_ensemble as bfe_mod
+        bfe_mod._shutdown = True
+        return {
+            "models": ",".join(combo), "n_models": len(combo), "Ann_Ret": 0.1, "Max_DD": -0.05,
+            "Excess_Ret": 0.05, "Ann_Excess": 0.05, "Total_Ret": 0.1, "Final_NAV": 110000, "Calmar": 2.0
+        }
+    
+    mock_run_bt.side_effect = side_effect_run_bt
+    
+    results = bfe.brute_force_backtest(
+        norm_df=norm_df, top_k=1, drop_n=0, benchmark="SH000300", freq="day",
+        min_combo_size=1, max_combo_size=1, output_dir=out_dir, anchor_date="2020-01-01",
+        n_jobs=1, batch_size=1
+    )
+    
+    # Due to shutdown, only 1 result should be captured and loop should break early
+    assert len(results) == 1
+    import quantpits.scripts.brute_force_ensemble as bfe_mod
+    assert bfe_mod._shutdown is True
+    # Reset for other tests
+    bfe_mod._shutdown = False
+
 @patch('quantpits.scripts.brute_force_ensemble.init_qlib')
 @patch('quantpits.scripts.brute_force_ensemble.load_config')
 @patch('quantpits.scripts.brute_force_ensemble.load_predictions')
@@ -438,9 +622,35 @@ def test_main_full(mock_safeguard, mock_analyze, mock_bf, mock_corr, mock_load_p
     out_dir = str(tmp_path / "output")
     os.makedirs(out_dir, exist_ok=True)
     
+    # Test standard execution
     with patch.object(sys, 'argv', ['script.py', '--output-dir', out_dir]):
         bfe.main()
     
+    mock_bf.assert_called_once()
+    mock_analyze.assert_called_once()
+
+    # Test --analysis-only
+    mock_bf.reset_mock()
+    mock_analyze.reset_mock()
+    # Mock existence of the result CSV to pass analysis
+    pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1]}).to_csv(
+        os.path.join(out_dir, "brute_force_results_2020-01-01.csv"), index=False
+    )
+    with patch.object(sys, 'argv', ['script.py', '--output-dir', out_dir, '--analysis-only']):
+        bfe.main()
+    mock_bf.assert_not_called()
+    mock_analyze.assert_called_once()
+
+    # Test --use-groups and OOS metrics via dates + resume
+    mock_bf.reset_mock()
+    mock_analyze.reset_mock()
+    with patch.object(sys, 'argv', [
+        'script.py', '--output-dir', out_dir, '--use-groups', 
+        '--start-date', '2019-01-01', '--end-date', '2020-01-01',
+        '--resume', '--n-jobs', '2', '--batch-size', '10', '--top-n', '3',
+        '--min-combo-size', '2', '--max-combo-size', '5'
+    ]):
+        bfe.main()
     mock_bf.assert_called_once()
     mock_analyze.assert_called_once()
 
