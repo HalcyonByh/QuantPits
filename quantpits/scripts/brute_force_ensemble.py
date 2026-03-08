@@ -439,8 +439,11 @@ def run_single_backtest(
         da_df.index.name = '成交日期'
         
         # Up-sample to daily frequency to ensure PortfolioAnalyzer's day-counting is correct
-        # Use the dates from norm_df to get the exact trading day index
-        daily_dates = norm_df.index.get_level_values('datetime').unique().sort_values()
+        # Use Qlib calendar to get the exact trading day index (Consistent with ensemble_fusion)
+        from qlib.data import D
+        bt_start_dt = da_df.index.min()
+        bt_end_dt = da_df.index.max()
+        daily_dates = D.calendar(start_time=bt_start_dt, end_time=bt_end_dt, freq='day')
         da_df = da_df.reindex(daily_dates, method='ffill').dropna(subset=['收盘价值'])
         da_df = da_df.reset_index().rename(columns={'index': '成交日期', 'datetime': '成交日期'})
         

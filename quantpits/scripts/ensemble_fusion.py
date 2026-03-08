@@ -946,7 +946,8 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
             'mean': r_strat.mean(),
             'std': r_strat.std(),
             'annualized_return': metrics.get('CAGR', 0),
-            'information_ratio': metrics.get('Sharpe', 0), # Using Sharpe for IR here as proxy
+            'annualized_excess': metrics.get('Excess_Return_CAGR', 0),
+            'information_ratio': metrics.get('Information_Ratio', 0),
             'max_drawdown': metrics.get('Max_Drawdown', 0)
         })
         risk_bench = pd.Series({
@@ -1016,7 +1017,8 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
                 metrics = {
                     'name': model_name,
                     'annualized_return': sub_metrics_pa.get('CAGR', 0),
-                    'information_ratio': sub_metrics_pa.get('Sharpe', 0),
+                    'annualized_excess': sub_metrics_pa.get('Excess_Return_CAGR', 0),
+                    'information_ratio': sub_metrics_pa.get('Information_Ratio', 0),
                     'max_drawdown': sub_metrics_pa.get('Max_Drawdown', 0)
                 }
                 leaderboard_data.append(metrics)
@@ -1033,7 +1035,7 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
         leaderboard_df = leaderboard_df.sort_values(sort_col, ascending=False)
 
         print(f"\n{'='*10} 绩效对比 {'='*10}")
-        display_cols = [c for c in ['annualized_return', 'information_ratio', 'max_drawdown'] if c in leaderboard_df.columns]
+        display_cols = [c for c in ['annualized_return', 'annualized_excess', 'information_ratio', 'max_drawdown'] if c in leaderboard_df.columns]
         if display_cols:
             print(leaderboard_df[display_cols])
         else:
@@ -1170,6 +1172,7 @@ def compare_combos(combo_results, anchor_date, output_dir, freq):
             row.update({
                 'total_return': round(metrics.get('Absolute_Return', 0) * 100, 2),
                 'annualized_return': round(metrics.get('CAGR', 0) * 100, 2),
+                'annualized_excess': round(metrics.get('Excess_Return_CAGR', 0) * 100, 2),
                 'max_drawdown': round(metrics.get('Max_Drawdown', 0) * 100, 2),
                 'calmar_ratio': round(metrics.get('Calmar', 1.0) if not pd.isna(metrics.get('Calmar')) else 0.0, 4),
                 'excess_return': round(metrics.get('Absolute_Return', 0) * 100 - metrics.get('Benchmark_Absolute_Return', 0) * 100, 2),
@@ -1183,7 +1186,7 @@ def compare_combos(combo_results, anchor_date, output_dir, freq):
 
     # 显示对比
     print(f"\n{'='*20} 组合对比 {'='*20}")
-    display_cols = [c for c in ['combo', 'is_default', 'total_return', 'annualized_return',
+    display_cols = [c for c in ['combo', 'is_default', 'total_return', 'annualized_return', 'annualized_excess',
                                 'max_drawdown', 'calmar_ratio', 'excess_return']
                     if c in comp_df.columns]
     if display_cols:

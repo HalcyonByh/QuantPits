@@ -46,6 +46,8 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 | `--end-date` | None | Filter end date YYYY-MM-DD |
 | `--only-last-years N` | `0` | Use only the last N years of data (Designed exclusively for OOS testing) |
 | `--only-last-months N` | `0` | Use only the last N months of data (Designed exclusively for OOS testing) |
+| `--detailed-analysis` | false | Generates a detailed backtest analysis report (similar to production reports) |
+| `--verbose-backtest` | false | Enables verbose mode for Qlib backtesting |
 
 ## Multi-Combo Configurations
 
@@ -168,7 +170,8 @@ output/
     ├── correlation_matrix_{date}.csv          # Correlation matrix
     ├── leaderboard_{date}.csv                 # Performance leaderboards
     ├── ensemble_nav_{date}.png                # Net asset value trajectories
-    └── ensemble_weights_{date}.png            # Dynamic weight mapping (dynamic mode)
+    ├── ensemble_weights_{date}.png            # Dynamic weight mapping (dynamic mode)
+    └── backtest_analysis_report_{date}.md     # [NEW] Detailed backtest analysis report (--detailed-analysis)
 ```
 
 ### Multi Combo Mode (`--from-config-all` or `--combo`)
@@ -183,7 +186,8 @@ output/
     ├── ensemble_fusion_config_combo_A_{date}.json
     ├── ensemble_fusion_config_combo_B_{date}.json
     ├── combo_comparison_{date}.csv           # Tabular cross-reference
-    └── combo_comparison_{date}.png           # Comparative charted trajectories
+    ├── combo_comparison_{date}.png           # Comparative charted trajectories
+    └── backtest_analysis_report_{combo}_{date}.md # [NEW] Detailed analysis report for this specific combo
 ```
 
 > [!TIP]

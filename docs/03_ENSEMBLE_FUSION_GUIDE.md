@@ -46,6 +46,8 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 | `--end-date` | 无 | 过滤数据的结束日期 YYYY-MM-DD |
 | `--only-last-years N` | `0` | 仅使用最后 N 年数据 (专为 OOS 测试设计) |
 | `--only-last-months N` | `0` | 仅使用最后 N 个月数据 (专为 OOS 测试设计) |
+| `--detailed-analysis` | false | 生成详尽的回测分析报告（类似实盘分析） |
+| `--verbose-backtest` | false | 开启 Qlib 回测的详细模式 |
 
 ## 多组合配置
 
@@ -168,7 +170,8 @@ output/
     ├── correlation_matrix_{date}.csv          # 相关性矩阵
     ├── leaderboard_{date}.csv                 # 绩效排行榜
     ├── ensemble_nav_{date}.png                # 净值曲线
-    └── ensemble_weights_{date}.png            # 动态权重图 (dynamic 模式)
+    ├── ensemble_weights_{date}.png            # 动态权重图 (dynamic 模式)
+    └── backtest_analysis_report_{date}.md     # [NEW] 详尽回测分析报告 (--detailed-analysis)
 ```
 
 ### 多组合模式（`--from-config-all` 或 `--combo`）
@@ -183,7 +186,8 @@ output/
     ├── ensemble_fusion_config_combo_A_{date}.json
     ├── ensemble_fusion_config_combo_B_{date}.json
     ├── combo_comparison_{date}.csv           # 跨组合对比表
-    └── combo_comparison_{date}.png           # 净值对比图
+    ├── combo_comparison_{date}.png           # 净值对比图
+    └── backtest_analysis_report_{combo}_{date}.md # [NEW] 该组合的详尽分析报告
 ```
 
 > [!TIP]
