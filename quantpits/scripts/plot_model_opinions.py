@@ -20,9 +20,9 @@ try:
 except ImportError:
     pass
 
-# 支持中文显示
-plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'Microsoft YaHei']
-plt.rcParams['axes.unicode_minus'] = False
+# Support English labels
+# plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'Microsoft YaHei']
+# plt.rcParams['axes.unicode_minus'] = False
 
 def main():
     parser = argparse.ArgumentParser(description="绘制 model_opinions 排名折线图")
@@ -79,11 +79,11 @@ def main():
     # 调整 X 轴标签角度，防止重叠
     plt.xticks(rotation=30, ha='right')
     
-    plt.ylabel('模型预测排名 (数字越小越靠前)')
-    plt.title(f'模型预测排名对比 - {os.path.basename(csv_file)}')
+    plt.ylabel('Model Prediction Rank (Smaller is Better)')
+    plt.title(f'Model Prediction Rank Comparison - {os.path.basename(csv_file)}')
     
-    # 将图例画在外面
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0., title="标的 (Instrument)")
+    # Legend outside
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0., title="Instrument")
     
     plt.tight_layout()
     

@@ -88,7 +88,14 @@ def render_macro_performance(port_a, returns, market):
     if not bench_returns.eq(0).all():
         fig1.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum.values, mode='lines', name=f'Benchmark ({market_col})', line=dict(color='orange', width=2)))
         
-    fig1.update_layout(title="Cumulative Returns on Log Scale", yaxis_type="log", yaxis_title="Cumulative Return (Log)", xaxis_title="Date", template="plotly_white")
+    fig1.update_layout(
+        title="Cumulative Returns on Log Scale", 
+        yaxis_type="log", 
+        yaxis_title="Cumulative Return (Log)", 
+        xaxis_title="Date", 
+        template="plotly_white",
+        legend_title_text="Legend"
+    )
     st.plotly_chart(fig1, use_container_width=True)
     
     # 2. Underwater Plot
@@ -140,6 +147,12 @@ def render_micro_execution(exec_a):
             x='MAE', 
             y='MFE', 
             color='Is_Profitable_Intraday', 
+            labels={
+                '证券代码': 'Instrument',
+                '成交日期': 'Date',
+                '成交价格': 'Execution Price',
+                'Is_Profitable_Intraday': 'Status'
+            },
             hover_data=['证券代码', '成交日期', '成交价格', 'Trade_Type'],
             title="MFE vs. MAE Scatter (Intraday Path Dependency)",
             color_discrete_map={'Profitable': 'green', 'Loss': 'red'}
@@ -302,7 +315,11 @@ def render_holdings_and_trades(port_a, exec_a):
             fig1.add_trace(go.Scatter(x=daily_count.index, y=daily_count.values, name="Holdings Count", mode="lines", line=dict(color="blue")), secondary_y=False)
             fig1.add_trace(go.Scatter(x=concentration.index, y=concentration.values, name="Top1 Concentration", mode="lines", line=dict(color="red")), secondary_y=True)
             
-            fig1.update_layout(title="Holdings Count & Concentration Over Time", template="plotly_white")
+            fig1.update_layout(
+                title="Holdings Count & Concentration Over Time", 
+                template="plotly_white",
+                legend_title_text="Metric"
+            )
             fig1.update_yaxes(title_text="Count", secondary_y=False)
             fig1.update_yaxes(title_text="Concentration", tickformat=".1%", secondary_y=True)
             st.plotly_chart(fig1, use_container_width=True)
