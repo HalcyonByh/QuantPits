@@ -10,5 +10,7 @@
     "TopK": 20,
     "DropN": 3,
     "buy_suggestion_factor": 2,
+    "market": "csi300",
+    "benchmark": "SH000300",
     "experiment_name": "demo_prod_run"
 }

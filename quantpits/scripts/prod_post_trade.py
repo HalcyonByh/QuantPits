@@ -581,8 +581,15 @@ def main():
 
     last_processed_date = config.get("last_processed_date", config["current_date"])
     model = config.get("model", "GATs")
-    market = config.get("market", "csi300")
-    benchmark = config.get("benchmark", "SH000300")
+    market = config.get("market")
+    if not market:
+        market = "csi300"
+        print(f"⚠️  Warning: 'market' not found in prod_config.json. Defaulting to '{market}'.")
+    
+    benchmark = config.get("benchmark")
+    if not benchmark:
+        benchmark = "SH000300"
+        print(f"⚠️  Warning: 'benchmark' not found in prod_config.json. Defaulting to '{benchmark}'.")
     
     # 确定券商适配器
     broker_name = args.broker or config.get("broker", "gtja")

@@ -347,7 +347,7 @@ python quantpits/scripts/ensemble_fusion.py \
 | `model_registry.yaml` | 模型注册表：定义模型名、算法、数据集、标签 | 训练、预测 |
 | `model_config.json` | 日期参数：训练窗口、滑动/固定模式 | 训练、预测 |
 | `strategy_config.yaml` | 策略参数：订单生成规则 (TopK等)，回测环境配置 | 订单生成、回测组合 |
-| `prod_config.json` | 实盘状态：当前持仓、现金余额、处理日期 | Post-Trade、订单生成 |
+| `prod_config.json` | 实盘状态：持仓、现金、市场(market)、基准(benchmark) | Post-Trade、订单生成 |
 | `cashflow.json` | 出入金记录：按日期的出入金 | Post-Trade |
 | `ensemble_config.json` | 多组合融合配置：combo 定义、权重、default | 融合预测、订单生成、信号排名 |
 | `workflow_config_*.yaml` | Qlib 工作流：各模型的训练配置 | 训练 |

@@ -34,6 +34,20 @@ python quantpits/scripts/order_gen.py --verbose
 
 ---
 
+## Configuration Requirements
+
+The script relies on the following key fields in `config/prod_config.json`:
+
+- **market**: (Recommended) Specifies the target universe (e.g., `csi300`, `csi1000`). If omitted, the script infers it from prediction data, but explicit definition is preferred.
+- **benchmark**: (Recommended) Reference index code (e.g., `SH000300`, `SH000852`).
+- **current_cash**: Current liquid balance for trade allocation.
+- **current_holding**: Array of active positions `[{"instrument": "...", "amount": "...", "value": "..."}, ...]`.
+
+> [!NOTE]
+> The engine features **automatic resilience**: even if the `market` configuration is mismatched, it will dynamically fetch pricing for all assets identified in the prediction source.
+
+---
+
 ## Predictive Data Sources
 
 The processing pipeline prioritizes prediction sources via a hierarchical tier:
@@ -177,6 +191,10 @@ Optional Overrides:
 ```
 
 ---
+
+### Stage 2: Fetch Pricing Parameters
+
+The script now scans all instruments identified within the prediction data and **automatically** retrieves their latest adjusted full price, limit-up price, and limit-down price. This significantly enhances system robustness, ensuring that correct pricing data is secured for lot size calculation even if the `market` configuration is not perfectly aligned.
 
 ## Core Dependencies
 

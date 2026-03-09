@@ -189,13 +189,14 @@ def load_predictions(prediction_file=None, model_name=None, anchor_date=None):
 # ============================================================================
 # Stage 2: 价格数据获取
 # ============================================================================
-def get_price_data(anchor_date, market):
+def get_price_data(anchor_date, market, instruments=None):
     """
     获取当日复权价格和涨跌停估价。
 
     Args:
         anchor_date: 锚点日期
         market: 市场名称
+        instruments: 可选, 直接指定标的列表(覆盖 market 自动获取)
 
     Returns:
         price_df: DataFrame with columns [current_close, possible_max, possible_min]
@@ -203,7 +204,9 @@ def get_price_data(anchor_date, market):
     from qlib.data import D
     from qlib.data.ops import Feature
 
-    instruments = D.instruments(market=market)
+    if instruments is None:
+        instruments = D.instruments(market=market)
+    
     current_close = Feature("close") / Feature("factor")
     possible_max = Feature("close") / Feature("factor") * 1.1
     possible_min = Feature("close") / Feature("factor") * 0.9
@@ -630,7 +633,11 @@ def main():
     buy_suggestion_factor = st_params.get('buy_suggestion_factor', 2)
 
     # 运行时状态变量（来自 prod_config）
-    market = config.get('market', 'csi300')
+    market = config.get('market')
+    if not market:
+        market = 'csi300'
+        print(f"⚠️  Warning: 'market' not found in prod_config.json. Defaulting to '{market}'.")
+
     current_cash = float(config.get('current_cash', 0))
     current_holding = config.get('current_holding', [])
     cash_flow_today = get_cashflow_today(cashflow_config, anchor_date)
@@ -673,8 +680,13 @@ def main():
     print("Stage 2: 获取价格数据")
     print(f"{'='*60}")
 
-    price_df = get_price_data(anchor_date, market)
-    print(f"价格数据   : {len(price_df)} 条")
+    # 获取预测数据涉及到的所有标的，确保价格数据能覆盖它们
+    latest_pred_day = pred_df.index.get_level_values('datetime').max()
+    pred_instruments = pred_df.xs(latest_pred_day, level='datetime').index.tolist() \
+        if len(pred_df.index.get_level_values('datetime').unique()) > 1 else pred_df.index.tolist()
+
+    price_df = get_price_data(anchor_date, market, instruments=pred_instruments)
+    print(f"价格数据   : {len(price_df)} 条 (基于预测标的获取)")
 
     # ---- 获取下一交易日 ----
     from qlib.data import D

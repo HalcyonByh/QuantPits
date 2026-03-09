@@ -345,7 +345,7 @@ latest_train_records.json   prod_config.json (Update Pos/Cash)
 | `model_registry.yaml` | Model Registry: Defines model names, algorithms, datasets, labels | Train, Predict |
 | `model_config.json` | Date Params: Training windows, sliding/fixed mode | Train, Predict |
 | `strategy_config.yaml` | Strategy Params: Order generation boundaries (TopK, etc.), Backtest environment config | Order Gen, Backtesting |
-| `prod_config.json` | Live State: Current holdings, cash balance, processed date | Post-Trade, Order Gen |
+| `prod_config.json` | Live State: Holdings, Cash, Market, Benchmark | Post-Trade, Order Gen |
 | `cashflow.json` | Cashflow Records: Deposits/Withdrawals by date | Post-Trade |
 | `ensemble_config.json` | Multi-combo Config: Combo definitions, weights, defaults | Fusion, Order Gen, Ranking |
 | `workflow_config_*.yaml` | Qlib Workflows: Training configurations for each model | Train |
