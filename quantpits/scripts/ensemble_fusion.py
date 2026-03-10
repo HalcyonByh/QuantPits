@@ -84,12 +84,16 @@ def init_qlib():
 
 
 def load_config(record_file="latest_train_records.json"):
-    """加载训练记录、模型配置和 ensemble 配置"""
-    with open(record_file, "r") as f:
-        train_records = json.load(f)
+    """使用 config_loader 加载统一配置"""
+    from config_loader import load_workspace_config
+    if os.path.exists(record_file):
+        with open(record_file, "r") as f:
+            train_records = json.load(f)
+    else:
+        train_records = {"models": {}, "experiment_name": "unknown"}
 
-    with open("config/model_config.json", "r") as f:
-        model_config = json.load(f)
+    # 使用 config_loader 加载工作区配置 (取代直接读取 model_config.json)
+    model_config = load_workspace_config(ROOT_DIR)
 
     ensemble_config = {}
     if os.path.exists("config/ensemble_config.json"):
@@ -331,7 +335,7 @@ def calculate_weights(norm_df, model_metrics, method, model_config,
     """
     model_names = list(norm_df.columns)
 
-    top_k = model_config.get('TopK', 22)
+    top_k = model_config.get('topk', model_config.get('TopK', 20))
     min_ic = ensemble_config.get('min_model_ic', 0.01)
 
     print(f"\n{'='*60}")

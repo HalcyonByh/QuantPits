@@ -148,16 +148,10 @@ def test_load_config(mock_env, tmp_path):
     with open(record_file, "w") as f:
         json.dump({"models": {"m1": "r1"}}, f)
 
-    (workspace / "config").mkdir(exist_ok=True)
-    with open(workspace / "config" / "model_config.json", "w") as f:
-        json.dump({"TopK": 20}, f)
-
-    old_cwd = os.getcwd()
-    os.chdir(workspace)
-    try:
+    with patch('config_loader.load_workspace_config') as mock_load:
+        mock_load.return_value = {"TopK": 20}
         records, model_config = bfe.load_config(str(record_file))
-    finally:
-        os.chdir(old_cwd)
+        
     assert records["models"]["m1"] == "r1"
     assert model_config["TopK"] == 20
 

@@ -186,16 +186,15 @@ def test_load_configs(mock_env):
     import json
     order_gen, strategy, workspace = mock_env
     
-    config_file = workspace / "config" / "prod_config.json"
     cashflow_file = workspace / "config" / "cashflow.json"
     
-    with open(config_file, "w") as f:
-        json.dump({"market": "csi300"}, f)
-        
     with open(cashflow_file, "w") as f:
         json.dump({"cash_flow_today": 123}, f)
         
-    config, cf_config = order_gen.load_configs()
+    with patch('config_loader.load_workspace_config') as mock_load:
+        mock_load.return_value = {"market": "csi300"}
+        config, cf_config = order_gen.load_configs()
+        
     assert config == {"market": "csi300"}
     assert cf_config == {"cash_flow_today": 123}
 

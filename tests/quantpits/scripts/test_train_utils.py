@@ -110,58 +110,52 @@ def test_backup_file_with_date(mock_env_constants, tmp_path):
 def test_calculate_dates_slide(mock_env_constants, tmp_path):
     train_utils, workspace = mock_env_constants
     
-    config_path = workspace / "config" / "model_config.json"
-    with open(config_path, "w") as f:
-        json.dump({
-            "market": "csi300",
-            "benchmark": "SH000300",
-            "train_date_mode": "last_trade_date",
-            "data_slice_mode": "slide",
-            "test_set_window": 1,
-            "valid_set_window": 1,
-            "train_set_windows": 3,
-            "freq": "day"
-        }, f)
+    config_dict = {
+        "market": "csi300",
+        "benchmark": "SH000300",
+        "train_date_mode": "last_trade_date",
+        "data_slice_mode": "slide",
+        "test_set_window": 1,
+        "valid_set_window": 1,
+        "train_set_windows": 3,
+        "freq": "day",
+        "current_full_cash": 200000.0
+    }
         
-    prod_path = workspace / "config" / "prod_config.json"
-    with open(prod_path, "w") as f:
-        json.dump({"current_full_cash": 200000.0}, f)
-        
-    with patch('quantpits.scripts.train_utils.MODEL_CONFIG_FILE', str(config_path)):
-        with patch('quantpits.scripts.train_utils.PROD_CONFIG_FILE', str(prod_path)):
-            with patch('qlib.data.D') as mock_d:
-                # Mock calendar to anchor on 2026-03-01
-                mock_d.calendar.return_value = [pd.Timestamp("2026-03-01")]
-                
-                params = train_utils.calculate_dates()
-                
-                assert params["market"] == "csi300"
-                assert params["account"] == 200000.0
-                assert params["anchor_date"] == "2026-03-01"
-                assert params["test_end_time"] == "2026-03-01"
-                assert params["freq"] == "day"
+    with patch('config_loader.load_workspace_config') as mock_load:
+        mock_load.return_value = config_dict
+        with patch('qlib.data.D') as mock_d:
+            # Mock calendar to anchor on 2026-03-01
+            mock_d.calendar.return_value = [pd.Timestamp("2026-03-01")]
+            
+            params = train_utils.calculate_dates()
+            
+            assert params["market"] == "csi300"
+            assert params["account"] == 200000.0
+            assert params["anchor_date"] == "2026-03-01"
+            assert params["test_end_time"] == "2026-03-01"
+            assert params["freq"] == "day"
 
 def test_calculate_dates_fixed(mock_env_constants, tmp_path):
     train_utils, workspace = mock_env_constants
     
-    config_path = workspace / "config" / "model_config.json"
-    with open(config_path, "w") as f:
-        json.dump({
-            "market": "csi300",
-            "benchmark": "SH000300",
-            "train_date_mode": "fixed",
-            "current_date": "2026-01-01",
-            "data_slice_mode": "fixed",
-            "start_time": "2010-01-01",
-            "fit_start_time": "2010-01-01",
-            "fit_end_time": "2015-01-01",
-            "valid_start_time": "2015-01-01",
-            "valid_end_time": "2016-01-01",
-            "test_start_time": "2016-01-01",
-            "test_end_time": "2026-01-01"
-        }, f)
+    config_dict = {
+        "market": "csi300",
+        "benchmark": "SH000300",
+        "train_date_mode": "fixed",
+        "current_date": "2026-01-01",
+        "data_slice_mode": "fixed",
+        "start_time": "2010-01-01",
+        "fit_start_time": "2010-01-01",
+        "fit_end_time": "2015-01-01",
+        "valid_start_time": "2015-01-01",
+        "valid_end_time": "2016-01-01",
+        "test_start_time": "2016-01-01",
+        "test_end_time": "2026-01-01"
+    }
         
-    with patch('quantpits.scripts.train_utils.MODEL_CONFIG_FILE', str(config_path)):
+    with patch('config_loader.load_workspace_config') as mock_load:
+        mock_load.return_value = config_dict
         params = train_utils.calculate_dates()
         assert params["anchor_date"] == "2026-01-01"
         assert params["start_time"] == "2010-01-01"

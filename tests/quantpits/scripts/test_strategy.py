@@ -75,17 +75,17 @@ def test_load_strategy_config_defaults(mock_env):
 
 
 def test_load_strategy_config_fallback_legacy(mock_env):
-    """When no YAML but legacy JSONs exist, should fallback to those."""
+    """When no YAML but legacy JSONs exist, should fallback to those (now handled fully via mock for isolation)."""
     strategy, workspace, config_dir = mock_env
 
-    model_json = {"TopK": 15, "DropN": 5}
-    prod_json = {"buy_suggestion_factor": 4}
-    with open(config_dir / "model_config.json", "w") as f:
-        json.dump(model_json, f)
-    with open(config_dir / "prod_config.json", "w") as f:
-        json.dump(prod_json, f)
-
-    config = strategy.load_strategy_config()
+    with patch('config_loader.load_workspace_config') as mock_load:
+        mock_load.return_value = {
+            "TopK": 15,
+            "DropN": 5,
+            "buy_suggestion_factor": 4
+        }
+        config = strategy.load_strategy_config()
+        
     assert config["strategy"]["params"]["topk"] == 15
     assert config["strategy"]["params"]["n_drop"] == 5
     assert config["strategy"]["params"]["buy_suggestion_factor"] == 4

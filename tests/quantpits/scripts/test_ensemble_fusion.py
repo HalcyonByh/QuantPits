@@ -278,19 +278,22 @@ def test_load_config(mock_exists, mock_open):
     
     mock_exists.return_value = True
     
-    with patch("quantpits.scripts.ensemble_fusion.json.load") as mock_json_load:
-        mock_json_load.side_effect = [
-            {"train": "record"},
-            {"model": "config"},
-            {"ensemble": "config"}
-        ]
+    with patch("config_loader.load_workspace_config") as mock_load_workspace:
+        mock_load_workspace.return_value = {"model": "config"}
         
-        tr, mc, ec = ef.load_config("dummy.json")
-        
-        assert tr == {"train": "record"}
-        assert mc == {"model": "config"}
-        assert ec == {"ensemble": "config"}
-        assert mock_json_load.call_count == 3
+        with patch("quantpits.scripts.ensemble_fusion.json.load") as mock_json_load:
+            mock_json_load.side_effect = [
+                {"train": "record"},
+                {"ensemble": "config"}
+            ]
+            
+            tr, mc, ec = ef.load_config("dummy.json")
+            
+            assert tr == {"train": "record"}
+            assert mc == {"model": "config"}
+            assert ec == {"ensemble": "config"}
+            assert mock_json_load.call_count == 2
+            mock_load_workspace.assert_called_once()
 
 def test_filter_norm_df_by_args():
     import quantpits.scripts.ensemble_fusion as ef

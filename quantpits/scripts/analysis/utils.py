@@ -25,20 +25,18 @@ DEFAULT_BENCHMARK = "SH000300"
 
 def load_market_config():
     """
-    从 model_config.json 读取 market 和 benchmark 配置。
-    返回 (market, benchmark) 元组。
+    使用 config_loader 加载统一配置并返回 market 和 benchmark。
     """
-    market = DEFAULT_MARKET
-    benchmark = DEFAULT_BENCHMARK
-    if os.path.exists(MODEL_CONFIG_FILE):
-        try:
-            with open(MODEL_CONFIG_FILE, 'r') as f:
-                cfg = json.load(f)
-            market = cfg.get("market", DEFAULT_MARKET)
-            benchmark = cfg.get("benchmark", DEFAULT_BENCHMARK)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return market, benchmark
+    from config_loader import load_workspace_config
+    try:
+        config = load_workspace_config(ROOT_DIR)
+        
+        market = config.get("market", DEFAULT_MARKET)
+        benchmark = config.get("benchmark", DEFAULT_BENCHMARK)
+        return market, benchmark
+    except Exception as e:
+        print(f"Warning: Failed to load market config: {e}")
+        return DEFAULT_MARKET, DEFAULT_BENCHMARK
 
 
 def init_qlib():

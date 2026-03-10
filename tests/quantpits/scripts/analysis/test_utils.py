@@ -10,26 +10,28 @@ from quantpits.scripts.analysis import utils as ut
 
 def test_load_market_config(tmp_path):
     # Test fallback
-    with patch('quantpits.scripts.analysis.utils.MODEL_CONFIG_FILE', str(tmp_path / "missing.json")):
+    with patch('quantpits.scripts.analysis.utils.ROOT_DIR', str(tmp_path)):
         market, benchmark = ut.load_market_config()
         assert market == ut.DEFAULT_MARKET
         assert benchmark == ut.DEFAULT_BENCHMARK
     
     # Test parsed config
-    config_path = tmp_path / "model_config.json"
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_path = config_dir / "model_config.json"
     config_path.write_text(json.dumps({
         "market": "my_market",
         "benchmark": "my_benchmark"
     }))
     
-    with patch('quantpits.scripts.analysis.utils.MODEL_CONFIG_FILE', str(config_path)):
+    with patch('quantpits.scripts.analysis.utils.ROOT_DIR', str(tmp_path)):
         market, benchmark = ut.load_market_config()
         assert market == "my_market"
         assert benchmark == "my_benchmark"
         
     # Test corrupted parsed config
     config_path.write_text("not a valid json")
-    with patch('quantpits.scripts.analysis.utils.MODEL_CONFIG_FILE', str(config_path)):
+    with patch('quantpits.scripts.analysis.utils.ROOT_DIR', str(tmp_path)):
         market, benchmark = ut.load_market_config()
         assert market == ut.DEFAULT_MARKET
         assert benchmark == ut.DEFAULT_BENCHMARK

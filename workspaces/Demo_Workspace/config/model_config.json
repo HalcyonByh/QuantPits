@@ -6,8 +6,6 @@
     "test_set_window": 3,
     "market": "csi300",
     "benchmark": "SH000300",
-    "TopK": 20,
-    "DropN": 3,
     "start_time": "2020-01-01",
     "fit_start_time": "2020-01-01",
     "fit_end_time": "2021-12-31",

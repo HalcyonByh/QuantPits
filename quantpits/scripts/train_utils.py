@@ -43,14 +43,12 @@ RUN_STATE_FILE = os.path.join(ROOT_DIR, "data", "run_state.json")
 
 # ================= 日期计算 =================
 def calculate_dates():
-    """根据 model_config.json 计算训练日期窗口"""
+    """根据统一配置计算训练日期窗口"""
     from qlib.data import D
+    from config_loader import load_workspace_config
 
-    if not os.path.exists(MODEL_CONFIG_FILE):
-        raise FileNotFoundError(f"Config file not found: {MODEL_CONFIG_FILE}")
-
-    with open(MODEL_CONFIG_FILE, 'r') as file:
-        config = json.load(file)
+    # 加载统一配置 (取代对 MODEL_CONFIG_FILE 和 PROD_CONFIG_FILE 的直接读取)
+    config = load_workspace_config(ROOT_DIR)
 
     train_date_mode = config.get('train_date_mode', 'last_trade_date')
     data_slice_mode = config.get('data_slice_mode', 'slide')
@@ -92,18 +90,15 @@ def calculate_dates():
         test_start_time = config.get("test_start_time", "")
         test_end_time = config.get("test_end_time", "")
 
-    # 加载生产配置文件以获取当前资金信息
-    account = 100000.0
-    if os.path.exists(PROD_CONFIG_FILE):
-        with open(PROD_CONFIG_FILE, 'r') as file:
-            prod_config = json.load(file)
-        account = prod_config.get("current_full_cash", 100000.0)
+    # 获取当前资金信息 (从统一配置中的 current_full_cash 获取)
+    account = config.get("current_full_cash", 100000.0)
     
     date_params = {
-        "market": config["market"],
-        "benchmark": config["benchmark"],
-        "topk": config.get("TopK", 20),
-        "n_drop": config.get("DropN", 3),
+        "market": config.get("market", "csi300"),
+        "benchmark": config.get("benchmark", "SH000300"),
+        "topk": config.get("topk", 20),
+        "n_drop": config.get("n_drop", 3),
+        "buy_suggestion_factor": config.get("buy_suggestion_factor", 2),
         "account": account,
         "start_time": start_time,
         "end_time": test_end_time,
@@ -117,10 +112,10 @@ def calculate_dates():
         "freq": freq
     }
 
-    print("\n=== Date Calculation Result ===")
+    print("\n=== Config Loaded via config_loader ===")
     for k, v in date_params.items():
         print(f"{k}: {v}")
-    print("===============================\n")
+    print("========================================\n")
 
     return date_params
 
@@ -135,6 +130,12 @@ def inject_config(yaml_path, params):
 
     config['market'] = params['market']
     config['benchmark'] = params['benchmark']
+
+    # 注入策略参数
+    if 'strategy' in config and 'params' in config['strategy']:
+        config['strategy']['params']['topk'] = params.get('topk', 20)
+        config['strategy']['params']['n_drop'] = params.get('n_drop', 3)
+        config['strategy']['params']['buy_suggestion_factor'] = params.get('buy_suggestion_factor', 2)
 
     dh = config['data_handler_config']
     dh['start_time'] = params['start_time']

@@ -36,12 +36,13 @@ python quantpits/scripts/order_gen.py --verbose
 
 ## 配置要求
 
-脚本运行需要 `config/prod_config.json` 中的以下关键字段：
+脚本运行会通过 `config_loader` 统一合并工作区配置（包含 `prod_config.json`, `model_config.json`, `strategy_config.yaml`）。以下是影响脚本的核心逻辑字段：
 
-- **market**: (推荐) 指定市场（如 `csi300`, `csi1000`）。若缺失，脚本会尝试从预测标的中自动推断，但建议显式指定。
-- **benchmark**: (推荐) 指定基准指数代码（如 `SH000300`, `SH000852`）。
-- **current_cash**: 当前可用现金余额。
-- **current_holding**: 当前持仓列表 `[{"instrument": "...", "amount": "...", "value": "..."}, ...]`。
+- **market**: (推荐) 交易市场界定（如 `csi300`, `csi1000`）。通常在 `model_config.json` 定义。若缺失，脚本会从预测文件中自动推断，但建议显式指定。
+- **benchmark**: (推荐) 交易基准（如 `SH000300`, `SH000852`）。通常在 `model_config.json` 定义。
+- **current_cash**: 当前可用现金余额。由 Post-Trade 脚本自动更新维护在 `prod_config.json` 中。
+- **current_holding**: 存量持仓状态 `[{"instrument": "...", "amount": "...", "value": "..."}, ...]`。由 Post-Trade 脚本自动更新维护在 `prod_config.json` 中。
+- **topk** / **n_drop** / **buy_suggestion_factor**: 订单生成策略参数。定义于 `strategy_config.yaml` 或兼容旧版由根配置管理。
 
 > [!NOTE]
 > 脚本具备**自动容错**能力：即使 `market` 配置错误，也会根据预测文件中的标的列表自动获取对应的价格数据。

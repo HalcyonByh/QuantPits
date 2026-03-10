@@ -70,9 +70,9 @@ def get_anchor_date():
 
 
 def load_configs():
-    """加载 prod_config.json 和 cashflow.json"""
-    with open(CONFIG_FILE, 'r') as f:
-        config = json.load(f)
+    """使用 config_loader 加载统一配置并读取 cashflow.json"""
+    from config_loader import load_workspace_config
+    config = load_workspace_config(ROOT_DIR)
 
     cashflow_config = {}
     if os.path.exists(CASHFLOW_FILE):
@@ -626,18 +626,14 @@ def main():
     strategy_config = strategy.load_strategy_config()
     order_gen = strategy.create_order_generator(strategy_config)
     
-    # 策略参数（由 Strategy Provider 统一管理）
+    # 策略参数（由 Strategy Provider 统一管理，底层已切到 config_loader）
     st_params = strategy.get_strategy_params(strategy_config)
     top_k = st_params.get('topk', 20)
     drop_n = st_params.get('n_drop', 3)
     buy_suggestion_factor = st_params.get('buy_suggestion_factor', 2)
 
-    # 运行时状态变量（来自 prod_config）
-    market = config.get('market')
-    if not market:
-        market = 'csi300'
-        print(f"⚠️  Warning: 'market' not found in prod_config.json. Defaulting to '{market}'.")
-
+    # 运行时状态变量（来自 config_loader 整合后的 config）
+    market = config.get('market', 'csi300')
     current_cash = float(config.get('current_cash', 0))
     current_holding = config.get('current_holding', [])
     cash_flow_today = get_cashflow_today(cashflow_config, anchor_date)

@@ -132,12 +132,15 @@ def init_qlib():
 
 
 def load_config(record_file="latest_train_records.json"):
-    """加载训练记录和模型配置"""
-    with open(record_file, "r") as f:
-        train_records = json.load(f)
+    """使用 config_loader 加载统一配置"""
+    from config_loader import load_workspace_config
+    if os.path.exists(record_file):
+        with open(record_file, "r") as f:
+            train_records = json.load(f)
+    else:
+        train_records = {"models": {}, "experiment_name": "unknown"}
 
-    with open("config/model_config.json", "r") as f:
-        model_config = json.load(f)
+    model_config = load_workspace_config(ROOT_DIR)
 
     return train_records, model_config
 

@@ -36,12 +36,13 @@ python quantpits/scripts/order_gen.py --verbose
 
 ## Configuration Requirements
 
-The script relies on the following key fields in `config/prod_config.json`:
+The script loads unified workspace parameters implicitly leveraging `config_loader` (which aggregates `prod_config.json`, `model_config.json`, and `strategy_config.yaml`). Below are the vital operative boundaries steering execution logic:
 
-- **market**: (Recommended) Specifies the target universe (e.g., `csi300`, `csi1000`). If omitted, the script infers it from prediction data, but explicit definition is preferred.
-- **benchmark**: (Recommended) Reference index code (e.g., `SH000300`, `SH000852`).
-- **current_cash**: Current liquid balance for trade allocation.
-- **current_holding**: Array of active positions `[{"instrument": "...", "amount": "...", "value": "..."}, ...]`.
+- **market**: (Recommended) Target operational universe (e.g., `csi300`, `csi1000`). Customarily bounded centrally inside `model_config.json`. If omitted, the architecture auto-infers data scopes utilizing target prediction limits.
+- **benchmark**: (Recommended) Index metric boundaries (e.g., `SH000300`, `SH000852`). Built into `model_config.json`.
+- **current_cash**: Current liquid balance limits defining order sizes. Systematically maintained via Post-Trade executing upon `prod_config.json`.
+- **current_holding**: Active held component quantities arrays. Systematically maintained via Post-Trade executing upon `prod_config.json`.
+- **topk** / **n_drop** / **buy_suggestion_factor**: Operation positioning strategy boundaries natively registered executing inside `strategy_config.yaml`.
 
 > [!NOTE]
 > The engine features **automatic resilience**: even if the `market` configuration is mismatched, it will dynamically fetch pricing for all assets identified in the prediction source.

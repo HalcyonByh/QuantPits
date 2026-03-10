@@ -27,14 +27,16 @@ import env
 # ==============================================================================
 def load_strategy_config():
     """
-    加载策略配置，首选 config/strategy_config.yaml
-    如果不存在，Fallback 到遗留的 model_config.json 和 prod_config.json（将来弃用）
+    加载策略配置。使用 config_loader.load_workspace_config 统筹加载。
     """
-    strategy_yaml = os.path.join(env.ROOT_DIR, "config", "strategy_config.yaml")
+    from config_loader import load_workspace_config
     
-    # 默认值
+    # load_workspace_config 已经包含了对 strategy_config.yaml 的读取以及对 TopK/DropN 的 Promote
+    full_config = load_workspace_config(env.ROOT_DIR)
+    
+    # 构造 strategy.py 所需的返回结构
     config = {
-        "strategy": {
+        "strategy": full_config.get("strategy", {
             "name": "topk_dropout",
             "params": {
                 "topk": 20,
@@ -42,8 +44,8 @@ def load_strategy_config():
                 "only_tradable": True,
                 "buy_suggestion_factor": 2
             }
-        },
-        "backtest": {
+        }),
+        "backtest": full_config.get("backtest", {
             "account": 100_000_000,
             "exchange_kwargs": {
                 "limit_threshold": 0.095,
@@ -52,43 +54,16 @@ def load_strategy_config():
                 "close_cost": 0.0015,
                 "min_cost": 5
             }
-        }
+        })
     }
     
-    if os.path.exists(strategy_yaml):
-        with open(strategy_yaml, "r", encoding="utf-8") as f:
-            yaml_config = yaml.safe_load(f)
-            if yaml_config:
-                if "strategy" in yaml_config:
-                    config["strategy"].update(yaml_config["strategy"])
-                if "backtest" in yaml_config:
-                    config["backtest"].update(yaml_config["backtest"])
-    else:
-        print("⚠️  [Strategy Provider] Warning: `config/strategy_config.yaml` not found.")
-        print("   Falling back to legacy JSON configs (`model_config.json` / `prod_config.json`).")
-        print("   Please consider migrating to `strategy_config.yaml` as JSON parameters are deprecated.")
-        
-        prod_json = os.path.join(env.ROOT_DIR, "config", "prod_config.json")
-        model_json = os.path.join(env.ROOT_DIR, "config", "model_config.json")
-        
-        topk, ndrop, bs_factor = 20, 3, 2
-        
-        if os.path.exists(model_json):
-            with open(model_json, "r") as f:
-                mc = json.load(f)
-                if "TopK" in mc: topk = mc["TopK"]
-                if "DropN" in mc: ndrop = mc["DropN"]
-                
-        if os.path.exists(prod_json):
-            with open(prod_json, "r") as f:
-                pc = json.load(f)
-                if "TopK" in pc: topk = pc["TopK"]
-                if "DropN" in pc: ndrop = pc["DropN"]
-                if "buy_suggestion_factor" in pc: bs_factor = pc["buy_suggestion_factor"]
-                
-        config["strategy"]["params"]["topk"] = topk
-        config["strategy"]["params"]["n_drop"] = ndrop
-        config["strategy"]["params"]["buy_suggestion_factor"] = bs_factor
+    # 兜底：如果 full_config 中有 top-level 的 topk/n_drop，确保注入到 strategy.params
+    # (config_loader 已经做了 Promote，这里是在 strategy_config 不存在时的双重保障)
+    if "params" in config["strategy"]:
+        p = config["strategy"]["params"]
+        p["topk"] = full_config.get("topk", full_config.get("TopK", p.get("topk")))
+        p["n_drop"] = full_config.get("n_drop", full_config.get("DropN", p.get("n_drop")))
+        p["buy_suggestion_factor"] = full_config.get("buy_suggestion_factor", p.get("buy_suggestion_factor"))
 
     return config
 

@@ -252,20 +252,12 @@ def test_load_config_real(mock_env, tmp_path):
     with open(rec_file, "w") as f:
         json.dump({"experiment_name": "Exp1", "models": {"m1": "r1"}}, f)
     
-    cfg_dir = workspace / "config"
-    cfg_dir.mkdir(exist_ok=True)
-    with open(cfg_dir / "model_config.json", "w") as f:
-        json.dump({"TopK": 50}, f)
-        
-    import os
-    orig_cwd = os.getcwd()
-    os.chdir(workspace)
-    try:
+    with patch('config_loader.load_workspace_config') as mock_load:
+        mock_load.return_value = {"TopK": 50}
         tr, mc = bff.load_config(str(rec_file))
-        assert tr["experiment_name"] == "Exp1"
-        assert mc["TopK"] == 50
-    finally:
-        os.chdir(orig_cwd)
+        
+    assert tr["experiment_name"] == "Exp1"
+    assert mc["TopK"] == 50
 
 @patch('qlib.data.D', create=True)
 def test_load_returns_matrix_fail(mock_D, mock_env):

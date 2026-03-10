@@ -53,19 +53,10 @@ EMPTY_TRADE_FILE = os.path.join(DATA_DIR, "emp-table.xlsx")
 # Config Loading
 # ---------------------------------------------------------------------------
 def load_prod_config():
-    """加载 prod_config.json"""
-    config_file = PROD_CONFIG_FILE
-    if not os.path.exists(config_file):
-        legacy_file = os.path.join(env.ROOT_DIR, "config", "weekly_config.json")
-        if os.path.exists(legacy_file):
-            config_file = legacy_file
-        else:
-            print(f"[ERROR] Cannot find {PROD_CONFIG_FILE} or {legacy_file}")
-            sys.exit(1)
-            
-    with open(config_file, "r") as f:
-        config = json.load(f)
-    return config
+    """使用 config_loader 加载统一配置"""
+    from config_loader import load_workspace_config
+    # env.ROOT_DIR 已经自动由 os.chdir 设置
+    return load_workspace_config(env.ROOT_DIR)
 
 
 def load_cashflow_config():
@@ -107,10 +98,19 @@ def get_cashflow_for_date(cashflow_config, date_str, is_first_day=False):
 
 
 def save_prod_config(config):
-    """保存 prod_config.json"""
-    # 始终保存到新的 prod_config.json
+    """保存 prod_config.json，仅保留动态状态字段以减少冗余"""
+    # 定义状态字段白名单
+    state_keys = {
+        "current_date", "last_processed_date", 
+        "current_cash", "current_holding", 
+        "model", "experiment_name", "broker"
+    }
+    
+    # 提取状态数据
+    state_config = {k: v for k, v in config.items() if k in state_keys}
+    
     with open(PROD_CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
+        json.dump(state_config, f, indent=4, ensure_ascii=False)
 
 
 def archive_cashflows(cashflow_config):
