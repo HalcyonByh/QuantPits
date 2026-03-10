@@ -193,13 +193,14 @@ def load_predictions(train_records):
     if not all_preds:
         raise ValueError("未加载到任何预测数据！")
 
-    # 合并 & Z-Score 归一化
-    merged_df = pd.concat(all_preds, axis=1).dropna()
+    # 合并 & Z-Score 归一化 (注意：不在这里 dropna，避免模型之间由于股票池差异互相削减样本)
+    merged_df = pd.concat(all_preds, axis=1)
     print(f"合并后数据维度: {merged_df.shape}")
 
     norm_df = pd.DataFrame(index=merged_df.index)
     for col in merged_df.columns:
-        norm_df[col] = zscore_norm(merged_df[col])
+        # 独立依靠单模型自身非空范围进行 Z-Score
+        norm_df[col] = zscore_norm(merged_df[col].dropna())
 
     return norm_df, model_metrics
 
@@ -386,8 +387,8 @@ def run_single_backtest(
     if bt_config is None:
         bt_config = strategy.get_backtest_config(st_config)
 
-    # 1. 合成信号 (等权均值，归一化后的)
-    combo_score = norm_df[list(combo_models)].mean(axis=1)
+    # 1. 合成信号 (等权均值，归一化后的) (仅在当前组合子集上求交集 dropna)
+    combo_score = norm_df[list(combo_models)].dropna(how='any').mean(axis=1)
 
     # 2. 准备组件
     # 注意: Account 必须每次新建，不能复用 (状态会累积)

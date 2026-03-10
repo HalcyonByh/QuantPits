@@ -419,10 +419,13 @@ def test_risk_analysis_and_leaderboard(mock_R, mock_env, tmp_path):
     mock_recorder.load_object.return_value = report_df
     mock_R.get_recorder.return_value = mock_recorder
     
+    idx = pd.MultiIndex.from_tuples([(pd.Timestamp("2020-01-01"), "A"), (pd.Timestamp("2020-01-02"), "A")], names=["datetime", "instrument"])
+    norm_df = pd.DataFrame({"M1": [0.5, 0.6]}, index=idx)
+
     with patch('quantpits.scripts.ensemble_fusion.calculate_safe_risk') as mock_risk:
         mock_risk.return_value = {"annualized_return": 0.5}
         reports, lb = ef.risk_analysis_and_leaderboard(
-            report_df, None, train_records, ["M1"], "day", str(out_dir), "2020-01-01"
+            report_df, norm_df, train_records, ["M1"], "day", str(out_dir), "2020-01-01"
         )
         
     assert "Ensemble" in reports

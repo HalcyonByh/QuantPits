@@ -193,6 +193,14 @@ output/
 > [!TIP]
 > The `default` combo will redundantly output a nameless `ensemble_{date}.csv` artifact, guaranteeing absolute zero-modification compliance for downstream utilities like `order_gen.py`.
 
+> [!NOTE]
+> **Understanding Metric Discrepancies: Single Models vs. Ensemble Backtests**
+>
+> When evaluating model performance within fusion and brute-force architectures, strict **Z-Score Normalization** and **Data Alignment** processing govern the engine. Therefore, because of TopK position bounding, backtest results of a single model here may exhibit reasonable, micro-level disparities from the raw metrics evaluated naturally post-training (e.g. via `run_analysis.py`):
+> 1. **Isolated Normalization**: Each model calculates its daily cross-sectional Z-scores purely on its *own* non-null predicted universe. Scaling remains mathematically uniform, and a single model's signal scale cannot be skewed by other models' data coverage gaps prior to scoring.
+> 2. **Delayed Intersection**: Strict intersection dropping (`dropna(how='any')`) is executed strictly at the exact combo scoring phase and is limited precisely to the subset of models within that specific combo iteration. This guarantees irrelevant sub-models don't unilaterally shrink the evaluated combination universe.
+> 3. **Benchmarking Alignment**: The sub-model evaluation leaderboard dynamically slices historical records to match the precise temporal boundaries established by the current ensemble matrix index. This constructs a perfect "apples-to-apples" comparison avoiding overlapping timeframe distortion.
+
 ## Typical Operations Sequence
 
 ```bash

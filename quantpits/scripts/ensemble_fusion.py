@@ -229,13 +229,13 @@ def load_selected_predictions(train_records, selected_models):
     if not all_preds:
         raise ValueError("未加载到任何预测数据！")
 
-    # 合并 & Z-Score 归一化
-    merged_df = pd.concat(all_preds, axis=1).dropna()
+    # 合并 & Z-Score 归一化 (注意：不要在这里提前 dropna，避免由于单模型标的变动殃及其他模型)
+    merged_df = pd.concat(all_preds, axis=1)
     print(f"合并后数据维度: {merged_df.shape}")
 
     norm_df = pd.DataFrame(index=merged_df.index)
     for col in merged_df.columns:
-        norm_df[col] = zscore_norm(merged_df[col])
+        norm_df[col] = zscore_norm(merged_df[col].dropna())
 
     return norm_df, model_metrics, loaded_models
 
@@ -1000,6 +1000,10 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
     freq_suffix = '1week' if freq_val == 'week' else '1day'
     report_filename = f"portfolio_analysis/report_normal_{freq_suffix}.pkl"
 
+    # 从当前 combo_norm_df 获取评价区间，以便子模型评估对齐
+    eval_start = str(norm_df.index.get_level_values('datetime').min().date())
+    eval_end = str(norm_df.index.get_level_values('datetime').max().date())
+
     for model_name in loaded_models:
         record_id = models.get(model_name)
         if not record_id:
@@ -1007,9 +1011,12 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
         try:
             recorder = R.get_recorder(recorder_id=record_id, experiment_name=experiment_name)
             hist_report = recorder.load_object(report_filename)
+            
+            # 裁剪历史报告到当前的评价区间
+            hist_report = hist_report[(hist_report.index >= pd.to_datetime(eval_start)) & (hist_report.index <= pd.to_datetime(eval_end))]
             all_reports[model_name] = hist_report
 
-            if 'return' in hist_report.columns:
+            if 'return' in hist_report.columns and not hist_report.empty:
                 # Up-sample sub-model report for consistent metric calculation
                 sub_da_df = pd.DataFrame(index=hist_report.index)
                 sub_da_df['收盘价值'] = hist_report['account']
@@ -1294,7 +1301,7 @@ def run_single_combo(combo_name, selected_models, method, manual_weights_str,
         print(f"Warning: combo {combo_name} 没有有效模型，跳过")
         return None
 
-    combo_norm_df = norm_df[combo_models]
+    combo_norm_df = norm_df[combo_models].dropna(how='any')
     combo_metrics = {m: model_metrics.get(m, 0) for m in combo_models}
 
     # ---- Stage 2: 相关性分析 ----
