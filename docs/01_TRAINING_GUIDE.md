@@ -56,12 +56,15 @@ models:
   gru:                              # 模型唯一标识名
     algorithm: gru                  # 算法名称
     dataset: Alpha158               # 数据处理器
-    market: csi300                  # 目标市场
+    market: csi300                  # 目标市场（作为元数据标签用于命令行筛选）
     yaml_file: config/workflow_config_gru.yaml  # Qlib 工作流配置
     enabled: true                   # 是否参与全量训练
     tags: [ts]                      # 分类标签（用于筛选）
     notes: "可选备注"                # 备注信息
 ```
+
+> [!NOTE]
+> **关于市场配置的区别**：注册表中的 `market` 字段是**模型元数据标签**，专门用于在执行增量训练或预测时通过 `--market` 参数进行筛选过滤。实际拉取量价数据时，系统依据的是 `model_config.json` 中的全局 `market` 设置。
 
 ### 添加新模型
 

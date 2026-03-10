@@ -56,12 +56,15 @@ models:
   gru:                              # Model unique identifier
     algorithm: gru                  # Algorithm name
     dataset: Alpha158               # Data handler
-    market: csi300                  # Target market
+    market: csi300                  # Target market (Metadata tag used for CLI filtering)
     yaml_file: config/workflow_config_gru.yaml  # Qlib workflow config
     enabled: true                   # Whether to participate in full training
     tags: [ts]                      # Classification tags (for filtering)
     notes: "Optional notes"         # Notes
 ```
+
+> [!NOTE]
+> **Distinction of Market Configurations**: The `market` field in the registry acts strictly as a **Model Metadata Tag** intended for CLI selection filtering via `--market` during incremental training or predictions. Actual data extraction bounds are perpetually steered by the global `market` setting inside `model_config.json`.
 
 ### Adding a New Model
 
