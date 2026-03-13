@@ -6,3 +6,22 @@ models:
     yaml_file: config/workflow_config_demo_weekly.yaml
     enabled: true
     tags: [baseline]
+
+  # --- 预训练示例 (Pre-training Examples) ---
+  # demo_lstm:
+  #   algorithm: lstm
+  #   dataset: Alpha158
+  #   market: csi300
+  #   yaml_file: config/workflow_config_lstm.yaml  # 需要对应的 YAML
+  #   enabled: false
+  #   tags: [basemodel, ts]
+  #
+  # demo_gats:
+  #   algorithm: gats
+  #   dataset: Alpha158
+  #   market: csi300
+  #   yaml_file: config/workflow_config_gats.yaml  # 需要对应的 YAML
+  #   enabled: false
+  #   tags: [graph, ts]
+  #   pretrain_source: demo_lstm
+

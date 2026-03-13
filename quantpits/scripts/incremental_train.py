@@ -100,6 +100,8 @@ def parse_args():
                       help='仅打印待训练模型列表，不实际训练')
     ctrl.add_argument('--experiment-name', type=str, default=None,
                       help='MLflow 实验名称 (默认: Prod_Train_{FREQ})')
+    ctrl.add_argument('--no-pretrain', action='store_true',
+                      help='忽略 pretrain_source，使用随机权重初始化 basemodel')
     
     # 信息查看
     info = parser.add_argument_group('信息查看')
@@ -260,7 +262,10 @@ def run_incremental_train(args):
         
         yaml_file = model_info['yaml_file']
         
-        result = train_single_model(model_name, yaml_file, params, experiment_name)
+        result = train_single_model(
+            model_name, yaml_file, params, experiment_name,
+            no_pretrain=args.no_pretrain
+        )
         
         if result['success']:
             new_records['models'][model_name] = result['record_id']

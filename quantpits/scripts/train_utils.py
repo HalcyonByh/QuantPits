@@ -39,6 +39,7 @@ RECORD_OUTPUT_FILE = os.path.join(ROOT_DIR, "latest_train_records.json")
 PREDICTION_OUTPUT_DIR = os.path.join(ROOT_DIR, "output", "predictions")
 HISTORY_DIR = os.path.join(ROOT_DIR, "data", "history")
 RUN_STATE_FILE = os.path.join(ROOT_DIR, "data", "run_state.json")
+PRETRAINED_DIR = os.path.join(ROOT_DIR, "data", "pretrained")
 
 
 # ================= 日期计算 =================
@@ -120,9 +121,179 @@ def calculate_dates():
     return date_params
 
 
+# ================= 预训练管理 =================
+def get_pretrained_model_path(base_model_name, anchor_date=None):
+    """获取预训练模型的路径
+    
+    Args:
+        base_model_name: 基础模型名（如 'lstm_Alpha158'）
+        anchor_date: 指定日期版本，None 则用 latest
+    
+    Returns:
+        str: 预训练模型路径，不存在返回 None
+    """
+    if anchor_date:
+        path = os.path.join(PRETRAINED_DIR, f"{base_model_name}_{anchor_date}.pkl")
+    else:
+        path = os.path.join(PRETRAINED_DIR, f"{base_model_name}_latest.pkl")
+    return path if os.path.exists(path) else None
+
+
+def save_pretrained_model(model, base_model_name, anchor_date,
+                          d_feat, hidden_size, num_layers):
+    """保存预训练模型的 state_dict 和元数据
+    
+    Args:
+        model: 训练好的 qlib 模型对象
+        base_model_name: 基础模型名（如 'lstm_Alpha158'）
+        anchor_date: 训练锚点日期
+        d_feat: 输入特征维度
+        hidden_size: 隐层大小
+        num_layers: 层数
+    
+    Returns:
+        str: 保存的 .pkl 文件路径
+    """
+    import torch
+    os.makedirs(PRETRAINED_DIR, exist_ok=True)
+    
+    inner_model = _get_inner_model(model)
+    state_dict = inner_model.state_dict()
+    
+    # 保存带日期的版本
+    dated_path = os.path.join(PRETRAINED_DIR, f"{base_model_name}_{anchor_date}.pkl")
+    torch.save(state_dict, dated_path)
+    
+    # 保存 JSON sidecar 元数据
+    metadata = {
+        "base_model_name": base_model_name,
+        "anchor_date": anchor_date,
+        "d_feat": d_feat,
+        "hidden_size": hidden_size,
+        "num_layers": num_layers,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    meta_path = dated_path.replace(".pkl", ".json")
+    with open(meta_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+    
+    # 更新 latest（复制而非 symlink，避免跨平台问题）
+    latest_pkl = os.path.join(PRETRAINED_DIR, f"{base_model_name}_latest.pkl")
+    latest_json = os.path.join(PRETRAINED_DIR, f"{base_model_name}_latest.json")
+    shutil.copy2(dated_path, latest_pkl)
+    shutil.copy2(meta_path, latest_json)
+    
+    print(f"🧠 预训练模型已保存: {dated_path}")
+    print(f"   元数据: {meta_path}")
+    print(f"   Latest: {latest_pkl}")
+    return dated_path
+
+
+def load_pretrained_metadata(base_model_name, anchor_date=None):
+    """加载预训练模型的 JSON sidecar 元数据
+    
+    Args:
+        base_model_name: 基础模型名
+        anchor_date: 日期版本，None 用 latest
+    
+    Returns:
+        dict or None: 元数据，不存在返回 None
+    """
+    if anchor_date:
+        meta_path = os.path.join(PRETRAINED_DIR, f"{base_model_name}_{anchor_date}.json")
+    else:
+        meta_path = os.path.join(PRETRAINED_DIR, f"{base_model_name}_latest.json")
+    
+    if os.path.exists(meta_path):
+        with open(meta_path, 'r') as f:
+            return json.load(f)
+    return None
+
+
+def _get_inner_model(model):
+    """从 qlib 模型包装器中获取内部 pytorch nn.Module
+    
+    支持的模型属性名: LSTM_model, lstm_model, gru_model, GRU_model
+    """
+    for attr in ['LSTM_model', 'lstm_model', 'gru_model', 'GRU_model']:
+        if hasattr(model, attr):
+            return getattr(model, attr)
+    raise ValueError(f"无法从 {type(model).__name__} 中提取内部模型, "
+                     f"已检查属性: LSTM_model, lstm_model, gru_model, GRU_model")
+
+
+def resolve_pretrained_path(model_name, registry=None):
+    """解析模型的预训练依赖路径
+    
+    根据 model_registry 中的 pretrain_source 字段，
+    查找对应的预训练模型文件。
+    
+    Args:
+        model_name: 模型名（如 'gats_Alpha158_plus'）
+        registry: 模型注册表，None 则自动加载
+    
+    Returns:
+        str or None: 预训练模型路径，无依赖或未找到返回 None
+    """
+    if registry is None:
+        registry = load_model_registry()
+    
+    model_info = registry.get(model_name, {})
+    pretrain_source = model_info.get('pretrain_source')
+    
+    if not pretrain_source:
+        return None
+    
+    path = get_pretrained_model_path(pretrain_source)
+    if path is None:
+        print(f"⚠️  模型 '{model_name}' 需要预训练模型 '{pretrain_source}'，但未找到")
+        print(f"   请先运行: python quantpits/scripts/pretrain.py --models {pretrain_source}")
+        print(f"   或: python quantpits/scripts/pretrain.py --for {model_name}")
+        print(f"   将使用随机权重初始化 basemodel")
+    return path
+
+
+def validate_pretrain_compatibility(model_name, pretrain_path, upper_d_feat):
+    """校验预训练模型与上层模型的 d_feat 兼容性
+    
+    Args:
+        model_name: 上层模型名
+        pretrain_path: 预训练文件路径
+        upper_d_feat: 上层模型的 d_feat
+    
+    Raises:
+        ValueError: d_feat 不匹配时
+    """
+    # 从 pretrain_path 推导 base_model_name
+    basename = os.path.basename(pretrain_path)
+    # 格式: {base_model_name}_{date}.pkl 或 {base_model_name}_latest.pkl
+    base_name = basename.rsplit('_', 1)[0] if '_' in basename else basename.replace('.pkl', '')
+    
+    metadata = load_pretrained_metadata(base_name)
+    if metadata is None:
+        # 无元数据（旧格式预训练文件），跳过校验
+        print(f"  ⚠️  预训练模型无元数据，跳过 d_feat 校验")
+        return
+    
+    pretrain_d_feat = metadata.get('d_feat')
+    if pretrain_d_feat is not None and pretrain_d_feat != upper_d_feat:
+        raise ValueError(
+            f"❌ Feature 不匹配: {model_name} (d_feat={upper_d_feat}) "
+            f"vs {basename} (d_feat={pretrain_d_feat})\n"
+            f"   请重新预训练: python quantpits/scripts/pretrain.py --for {model_name}"
+        )
+
+
 # ================= YAML 注入 =================
-def inject_config(yaml_path, params):
-    """将参数注入 YAML 配置 (包含频次感知注入)"""
+def inject_config(yaml_path, params, model_name=None, no_pretrain=False):
+    """将参数注入 YAML 配置 (包含频次感知注入 + 预训练 model_path 注入)
+    
+    Args:
+        yaml_path: YAML 配置文件路径
+        params: 日期参数 (来自 calculate_dates)
+        model_name: 模型名 (用于查找 pretrain_source), None 则跳过预训练注入
+        no_pretrain: 强制不加载预训练模型 (使用随机权重)
+    """
     with open(yaml_path, 'r') as f:
         config = yaml.safe_load(f)
 
@@ -185,6 +356,31 @@ def inject_config(yaml_path, params):
             if r_cfg.get('class') == 'SigAnaRecord':
                 if 'kwargs' not in r_cfg: r_cfg['kwargs'] = {}
                 r_cfg['kwargs']['ann_scaler'] = 52 if freq == 'week' else 252
+
+    # 4. 注入预训练 model_path
+    if 'task' in config and 'model' in config['task']:
+        model_kwargs = config['task']['model'].get('kwargs', {})
+        if 'base_model' in model_kwargs:
+            if no_pretrain:
+                # --no-pretrain: 强制删除 model_path, 使用随机权重
+                if 'model_path' in model_kwargs:
+                    del model_kwargs['model_path']
+                print(f"  ⏭️  --no-pretrain: 将使用随机权重初始化 basemodel")
+            elif model_name:
+                pretrain_path = resolve_pretrained_path(model_name)
+                if pretrain_path:
+                    # 校验 d_feat 兼容性
+                    upper_d_feat = model_kwargs.get('d_feat')
+                    if upper_d_feat is not None:
+                        validate_pretrain_compatibility(
+                            model_name, pretrain_path, upper_d_feat
+                        )
+                    model_kwargs['model_path'] = pretrain_path
+                    print(f"  🧠 注入预训练模型: {pretrain_path}")
+                else:
+                    # 预训练文件不存在, 删除 YAML 中可能存在的 model_path
+                    if 'model_path' in model_kwargs:
+                        del model_kwargs['model_path']
 
     return config
 
@@ -272,7 +468,7 @@ def get_models_by_names(model_names, registry=None):
 
 
 # ================= 单模型训练 =================
-def train_single_model(model_name, yaml_file, params, experiment_name):
+def train_single_model(model_name, yaml_file, params, experiment_name, no_pretrain=False):
     """
     训练单个模型的完整流程：训练 → 预测 → Signal Record → IC 计算
     
@@ -283,6 +479,7 @@ def train_single_model(model_name, yaml_file, params, experiment_name):
         yaml_file: YAML 配置文件路径
         params: 日期参数（来自 calculate_dates）
         experiment_name: MLflow 实验名称
+        no_pretrain: 强制不加载预训练模型
     
     Returns:
         dict: {
@@ -309,7 +506,7 @@ def train_single_model(model_name, yaml_file, params, experiment_name):
 
     print(f"\n>>> Processing Model: {model_name} from {yaml_file} ...")
     
-    task_config = inject_config(yaml_file, params)
+    task_config = inject_config(yaml_file, params, model_name=model_name, no_pretrain=no_pretrain)
     
     try:
         with R.start(experiment_name=experiment_name):
@@ -325,10 +522,7 @@ def train_single_model(model_name, yaml_file, params, experiment_name):
             
             # 训练
             print(f"[{model_name}] Training...")
-            if 'lstm' in model_name.lower():
-                model.fit(dataset=dataset, save_path="csi300_lstm_ts_latest.pkl")
-            else:
-                model.fit(dataset=dataset)
+            model.fit(dataset=dataset)
             
             # 预测
             print(f"[{model_name}] Predicting...")

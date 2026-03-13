@@ -92,6 +92,8 @@ def parse_args():
     ctrl.add_argument('--experiment-name', type=str,
                       default=DEFAULT_EXPERIMENT_NAME,
                       help=f'MLflow 实验名称 (默认: {DEFAULT_EXPERIMENT_NAME})')
+    ctrl.add_argument('--no-pretrain', action='store_true',
+                      help='忽略 pretrain_source，使用随机权重初始化 basemodel')
 
     # 信息查看
     info = parser.add_argument_group('信息查看')
@@ -143,7 +145,7 @@ def resolve_target_models(args):
     return targets
 
 
-def predict_single_model(model_name, model_info, params, experiment_name, source_records):
+def predict_single_model(model_name, model_info, params, experiment_name, source_records, no_pretrain=False):
     """
     使用已有模型对新数据进行预测（不训练）
 
@@ -213,7 +215,7 @@ def predict_single_model(model_name, model_info, params, experiment_name, source
         print(f"[{model_name}] Model loaded successfully")
 
         # 2. 构建新的 dataset（使用新日期范围）
-        task_config = inject_config(yaml_file, params)
+        task_config = inject_config(yaml_file, params, model_name=model_name, no_pretrain=no_pretrain)
 
         dataset_cfg = task_config['task']['dataset']
         dataset = init_instance_by_config(dataset_cfg)
@@ -381,7 +383,8 @@ def run_predict_only(args):
 
         result = predict_single_model(
             model_name, model_info, params,
-            experiment_name, source_records
+            experiment_name, source_records,
+            no_pretrain=args.no_pretrain
         )
 
         if result['success']:

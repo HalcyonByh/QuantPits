@@ -351,3 +351,102 @@ def test_train_single_model(mock_env_constants, tmp_path):
                 # Verify R interactions
                 mock_R.start.assert_called_once()
                 mock_R.set_tags.assert_called_with(model="DummyLGBM", anchor_date="2026-03-01")
+
+
+class TestPretrainManagement:
+    @patch('quantpits.scripts.train_utils.PRETRAINED_DIR', '/tmp/mock_pretrain_dir')
+    @patch('os.path.exists')
+    def test_get_pretrained_model_path(self, mock_exists):
+        from quantpits.scripts.train_utils import get_pretrained_model_path
+        
+        # Test with anchor_date
+        mock_exists.return_value = True
+        path = get_pretrained_model_path("lstm_Alpha158", "2026-03-01")
+        assert path == "/tmp/mock_pretrain_dir/lstm_Alpha158_2026-03-01.pkl"
+        
+        # Test latest
+        path = get_pretrained_model_path("lstm_Alpha158")
+        assert path == "/tmp/mock_pretrain_dir/lstm_Alpha158_latest.pkl"
+        
+        # Test not exists
+        mock_exists.return_value = False
+        assert get_pretrained_model_path("lstm_Alpha158") is None
+
+    @patch('quantpits.scripts.train_utils._get_inner_model')
+    @patch('quantpits.scripts.train_utils.PRETRAINED_DIR', '/tmp/mock_pretrain_dir')
+    @patch('os.makedirs')
+    @patch('torch.save')
+    @patch('shutil.copy2')
+    @patch('builtins.open', new_callable=mock_open)
+    def test_save_pretrained_model(self, mock_file, mock_copy, mock_save, mock_makedirs, mock_get_inner):
+        from quantpits.scripts.train_utils import save_pretrained_model
+        
+        # Mock model
+        mock_inner = MagicMock()
+        mock_inner.state_dict.return_value = {"weight": [1, 2, 3]}
+        mock_get_inner.return_value = mock_inner
+        
+        saved_path = save_pretrained_model(
+            MagicMock(), "lstm_Alpha158", "2026-03-01", 
+            d_feat=20, hidden_size=64, num_layers=2
+        )
+        
+        assert saved_path == "/tmp/mock_pretrain_dir/lstm_Alpha158_2026-03-01.pkl"
+        mock_save.assert_called_once_with({"weight": [1, 2, 3]}, saved_path)
+        
+        # Verify JSON writing
+        mock_file.assert_any_call("/tmp/mock_pretrain_dir/lstm_Alpha158_2026-03-01.json", 'w')
+        
+        # Verify copying to latest
+        assert mock_copy.call_count == 2 # pkl and json
+
+    @patch('quantpits.scripts.train_utils.PRETRAINED_DIR', '/tmp/mock_pretrain_dir')
+    @patch('os.path.exists')
+    @patch('builtins.open', new_callable=mock_open, read_data='{"d_feat": 20}')
+    def test_load_pretrained_metadata(self, mock_file, mock_exists):
+        from quantpits.scripts.train_utils import load_pretrained_metadata
+        mock_exists.return_value = True
+        
+        meta = load_pretrained_metadata("lstm_Alpha158")
+        assert meta["d_feat"] == 20
+        mock_exists.assert_called_with("/tmp/mock_pretrain_dir/lstm_Alpha158_latest.json")
+
+    @patch('quantpits.scripts.train_utils.load_model_registry')
+    @patch('quantpits.scripts.train_utils.get_pretrained_model_path')
+    def test_resolve_pretrained_path(self, mock_get_path, mock_load_registry):
+        from quantpits.scripts.train_utils import resolve_pretrained_path
+        
+        mock_load_registry.return_value = {
+            "gats": {"pretrain_source": "lstm"},
+            "lgbm": {}
+        }
+        
+        mock_get_path.return_value = "/tmp/lstm_latest.pkl"
+        
+        # Has pretrain_source
+        path = resolve_pretrained_path("gats")
+        assert path == "/tmp/lstm_latest.pkl"
+        mock_get_path.assert_called_with("lstm")
+        
+        # No pretrain_source
+        assert resolve_pretrained_path("lgbm") is None
+        
+        # pretrain_source but file missing
+        mock_get_path.return_value = None
+        assert resolve_pretrained_path("gats") is None
+
+    @patch('quantpits.scripts.train_utils.load_pretrained_metadata')
+    def test_validate_pretrain_compatibility(self, mock_load_meta):
+        from quantpits.scripts.train_utils import validate_pretrain_compatibility
+        
+        # Match
+        mock_load_meta.return_value = {"d_feat": 20}
+        validate_pretrain_compatibility("gats", "/path/to/lstm_latest.pkl", 20)
+        
+        # Mismatch
+        with pytest.raises(ValueError, match="Feature 不匹配"):
+            validate_pretrain_compatibility("gats", "/path/to/lstm_latest.pkl", 6)
+            
+        # No metadata
+        mock_load_meta.return_value = None
+        validate_pretrain_compatibility("gats", "/path/to/lstm_latest.pkl", 20) # should not raise

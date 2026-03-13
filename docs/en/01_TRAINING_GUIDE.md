@@ -4,11 +4,12 @@
 
 The training system consists of three main scripts that share the same utility modules and model registry:
 
-| Script | Purpose | Save Semantics |
-|------|------|----------|
-| `prod_train_predict.py` | Full training of all enabled models | **Full Overwrite** of `latest_train_records.json` |
-| `incremental_train.py` | Selective training of individual models | **Incremental Merge** to `latest_train_records.json` |
-| `prod_predict_only.py` | Prediction only (no training) | **Incremental Merge** to `latest_train_records.json` |
+| Script | Purpose | Training | Data Source | Save Semantics |
+|------|------|------|--------|----------|
+| `prod_train_predict.py` | Full training+predict | ✅ | configs | `latest_train_records.json` |
+| `incremental_train.py` | Incremental training+predict | ✅ | configs | `latest_train_records.json` |
+| `prod_predict_only.py` | Prediction only | ❌ | Existing models | `latest_train_records.json` |
+| `pretrain.py` | Base model pre-training | ✅ | configs | `data/pretrained/` (state_dict) |
 
 Both scripts automatically back up the history to `data/history/` before modifying `latest_train_records.json`.
 
@@ -23,6 +24,7 @@ QuantPits/
 │   │   ├── prod_train_predict.py   # Full training script
 │   │   ├── incremental_train.py      # Incremental training script
 │   │   ├── prod_predict_only.py    # Prediction-only script (no training)
+│   │   ├── pretrain.py               # 🧠 Base model pre-training script
 │   │   ├── check_workflow_yaml.py    # 🔧 YAML config production validation & fix
 │   │   └── train_utils.py            # Shared utility module
 │   └── docs/
@@ -39,6 +41,7 @@ QuantPits/
         │   └── model_performance_*.json # Model performance metrics (IC/ICIR)
         ├── data/
         │   ├── history/              # 📦 Auto-backed up historical files
+        │   ├── pretrained/           # 🧠 Pre-trained base models (.pkl + .json)
         │   └── run_state.json        # State tracker for incremental training
         └── latest_train_records.json # Current training records
 ```
@@ -59,9 +62,14 @@ models:
     market: csi300                  # Target market (Metadata tag used for CLI filtering)
     yaml_file: config/workflow_config_gru.yaml  # Qlib workflow config
     enabled: true                   # Whether to participate in full training
-    tags: [ts]                      # Classification tags (for filtering)
+    tags: [basemodel, ts]           # Classification tags (for filtering)
+    pretrain_source: lstm_Alpha158  # (Optional) Declare dependency on base model
     notes: "Optional notes"         # Notes
 ```
+
+#### Key Fields:
+- **`tags: [basemodel]`**: Marks the model as a pre-trainable base model.
+- **`pretrain_source`**: Tells the system which base model this upper-layer model depends on. The system will automatically look for the corresponding `_latest.pkl`.
 
 > [!NOTE]
 > **Distinction of Market Configurations**: The `market` field in the registry acts strictly as a **Model Metadata Tag** intended for CLI selection filtering via `--market` during incremental training or predictions. Actual data extraction bounds are perpetually steered by the global `market` setting inside `model_config.json`.
@@ -308,17 +316,54 @@ python quantpits/scripts/check_workflow_yaml.py --fix
 
 ---
 
+---
+
+## Base Model Pre-training (`pretrain.py`)
+
+Complex models (e.g., GATs, ADD, IGMTF) require a pre-trained base model (e.g., LSTM or GRU) for weight initialization.
+
+### Usage Scenarios
+- Providing initialization weights for upper-layer models.
+- When features (d_feat) are modified, requiring new compatible base models.
+
+### Core Semantics
+- **Pre-training is not logged in records**: It does not modify `latest_train_records.json`.
+- **Metadata Validation**: Each pre-trained file comes with a `.json` metadata file. If an upper model's `d_feat` doesn't match the pre-trained file, training will be blocked.
+
+### Common Commands
+
+```bash
+# 1. List pre-trainable models and dependencies
+python quantpits/scripts/pretrain.py --list
+
+# 2. Pre-train a specific base model
+python quantpits/scripts/pretrain.py --models lstm_Alpha158
+
+# 3. Pre-train FOR a specific upper model (Recommended: Aligns dataset config)
+# This ensures perfect compatibility even if features are modified.
+python quantpits/scripts/pretrain.py --for gats_Alpha158_plus
+
+# 4. Show existing pre-trained files
+python quantpits/scripts/pretrain.py --show-pretrained
+
+# 5. Force random weights (Skip pre-training)
+# Available in both incremental_train and prod_predict_only
+python quantpits/scripts/incremental_train.py --models gats_Alpha158_plus --no-pretrain
+```
+
+---
+
 ## Concerning LSTM and GATs
 
-- The `lstm_Alpha158` model automatically outputs `csi300_lstm_ts_latest.pkl` upon training.
-- This `.pkl` is a required `basemodel` for GATs.
-- GATs configurations implicitly reference this file.
-- Both LSTM and GATs are presently defaulted to `enabled: false`.
-- If GATs is desired, the LSTM must be trained chronologically prior:
-  ```bash
-  python quantpits/scripts/incremental_train.py --models lstm_Alpha158
-  python quantpits/scripts/incremental_train.py --models gats_Alpha158_plus
-  ```
+- `gats_Alpha158_plus` depends on `lstm_Alpha158` by default.
+- Full Workflow:
+  1. Pre-train base model (Optional if already exists):
+     `python quantpits/scripts/pretrain.py --for gats_Alpha158_plus`
+  2. Train upper model:
+     `python quantpits/scripts/incremental_train.py --models gats_Alpha158_plus`
+
+- To bypass pre-training and use random weights, use the `--no-pretrain` flag.
+
 
 ---
 

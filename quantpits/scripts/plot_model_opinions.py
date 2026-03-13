@@ -67,11 +67,13 @@ def main():
     # X 轴为各个模型/Combo，Y 轴为排名，每一根线代表一只股票
     plt.figure(figsize=(14, 8))
     
+    plotted = False
     for instrument in rank_df.index:
         y_values = rank_df.loc[instrument]
         if y_values.isna().all():
             continue
         plt.plot(rank_df.columns, y_values, marker='o', alpha=0.7, label=instrument)
+        plotted = True
         
     # Y轴刻度反转，使得排名第 1 的在最上面
     plt.gca().invert_yaxis()
@@ -83,7 +85,8 @@ def main():
     plt.title(f'Model Prediction Rank Comparison - {os.path.basename(csv_file)}')
     
     # Legend outside
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0., title="Instrument")
+    if plotted:
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0., title="Instrument")
     
     plt.tight_layout()
     

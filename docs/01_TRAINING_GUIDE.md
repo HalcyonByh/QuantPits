@@ -9,6 +9,7 @@
 | `prod_train_predict.py` | 全量训练+预测 | ✅ | configs | `latest_train_records.json` |
 | `incremental_train.py` | 增量训练+预测 | ✅ | configs | `latest_train_records.json` |
 | `prod_predict_only.py` | 仅预测 | ❌ | 已有模型 | `latest_train_records.json` |
+| `pretrain.py` | 基础模型预训练 | ✅ | configs | `data/pretrained/` (state_dict) |
 
 两个脚本都会在修改 `latest_train_records.json` 之前自动备份历史到 `data/history/`。
 
@@ -23,6 +24,7 @@ QuantPits/
 │   │   ├── prod_train_predict.py   # 全量训练脚本
 │   │   ├── incremental_train.py      # 增量训练脚本
 │   │   ├── prod_predict_only.py    # 仅预测脚本（不训练）
+│   │   ├── pretrain.py               # 🧠 基础模型预训练脚本
 │   │   ├── check_workflow_yaml.py    # 🔧 YAML配置生产环境参数验证
 │   │   └── train_utils.py            # 共享工具模块
 │   └── docs/
@@ -39,6 +41,7 @@ QuantPits/
         │   └── model_performance_*.json # 模型成绩
         ├── data/
         │   ├── history/              # 📦 自动备份的历史文件
+        │   ├── pretrained/           # 🧠 预训练基模型 (.pkl + .json)
         │   └── run_state.json        # 增量训练运行状态
         └── latest_train_records.json # 当前训练记录
 ```
@@ -59,9 +62,14 @@ models:
     market: csi300                  # 目标市场（作为元数据标签用于命令行筛选）
     yaml_file: config/workflow_config_gru.yaml  # Qlib 工作流配置
     enabled: true                   # 是否参与全量训练
-    tags: [ts]                      # 分类标签（用于筛选）
+    tags: [basemodel, ts]           # 分类标签（用于筛选）
+    pretrain_source: lstm_Alpha158  # (可选) 声明依赖的基础模型
     notes: "可选备注"                # 备注信息
 ```
+
+#### 关键字段说明：
+- **`tags: [basemodel]`**: 标记该模型可作为预训练基础模型。
+- **`pretrain_source`**: 标记该上层模型依赖哪个基础模型。系统会自动寻找对应的 `_latest.pkl`。
 
 > [!NOTE]
 > **关于市场配置的区别**：注册表中的 `market` 字段是**模型元数据标签**，专门用于在执行增量训练或预测时通过 `--market` 参数进行筛选过滤。实际拉取量价数据时，系统依据的是 `model_config.json` 中的全局 `market` 设置。
@@ -308,17 +316,54 @@ python quantpits/scripts/check_workflow_yaml.py --fix
 
 ---
 
+---
+
+## 基础模型预训练 (`pretrain.py`)
+
+某些复杂模型（如 GATs, ADD, IGMTF）需要一个预训练好的基模型（如 LSTM 或 GRU）作为权重初始化。
+
+### 使用场景
+- 需要为上层模型提供初始化权重。
+- 修改了 Feature (d_feat)，需要重新训练兼容的基础模型。
+
+### 核心语义
+- **预训练不计入训练记录**：不修改 `latest_train_records.json`。
+- **元数据校验**：每个预训练文件附带 `.json` 元数据。如果上层模型的 `d_feat` 与预训练文件不符，系统会报错阻断。
+
+### 常用命令
+
+```bash
+# 1. 列出可预训练模型及其依赖关系
+python quantpits/scripts/pretrain.py --list
+
+# 2. 预训练指定基础模型
+python quantpits/scripts/pretrain.py --models lstm_Alpha158
+
+# 3. 为特定上层模型预训练（最推荐：自动对齐 Dataset 配置）
+# 即使修改了 Feature，该命令也能确保基础模型与上层模型完全兼容
+python quantpits/scripts/pretrain.py --for gats_Alpha158_plus
+
+# 4. 查看已有预训练文件
+python quantpits/scripts/pretrain.py --show-pretrained
+
+# 5. 强制使用随机权重（跳过预训练）
+# 在 incremental_train 或 prod_predict_only 中均可用
+python quantpits/scripts/incremental_train.py --models gats_Alpha158_plus --no-pretrain
+```
+
+---
+
 ## 关于 LSTM 和 GATs
 
-- `lstm_Alpha158` 模型训练时会自动输出 `csi300_lstm_ts_latest.pkl`
-- 该 pkl 文件是 GATs 模型的 `basemodel`
-- GATs 模型配置中引用了此文件
-- 目前 LSTM 和 GATs 都设为 `enabled: false`
-- 如需使用 GATs，需先训练 LSTM：
-  ```bash
-  python quantpits/scripts/incremental_train.py --models lstm_Alpha158
-  python quantpits/scripts/incremental_train.py --models gats_Alpha158_plus
-  ```
+- `gats_Alpha158_plus` 默认依赖 `lstm_Alpha158`。
+- 训练全流程：
+  1. 预训练基模型（可选，已有则跳过）：
+     `python quantpits/scripts/pretrain.py --for gats_Alpha158_plus`
+  2. 训练上层模型：
+     `python quantpits/scripts/incremental_train.py --models gats_Alpha158_plus`
+
+- 如果不想使用预训练模型，只需加上 `--no-pretrain` 标志。
+
 
 ---
 
