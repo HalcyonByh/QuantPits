@@ -700,18 +700,13 @@ class TestMainFlows:
             'test_step_months': 3
         }
         
-        mock_state = mock.MagicMock()
-        mock_state.anchor_date = "2025-01-01"
-        mock_state.completed_windows = {"0": {"m1": "r1"}}
-        
         with mock.patch('rolling_train.parse_args', return_value=args), \
              mock.patch('rolling_train.resolve_target_models', return_value={'m1':{}}), \
              mock.patch('config_loader.load_rolling_config', return_value=mock_patch_cfg), \
-             mock.patch('rolling_train.RollingState', return_value=mock_state), \
-             mock.patch('rolling_train.predict_with_latest_model') as mock_predict:
+             mock.patch('rolling_train.run_predict_only') as mock_run_po:
             
             rt.main()
-            mock_predict.assert_called()
+            mock_run_po.assert_called_once()
 
     def test_main_resume(self, mock_env):
         rt, _ = mock_env

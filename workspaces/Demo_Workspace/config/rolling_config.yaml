@@ -1,0 +1,14 @@
+# Rolling Training Configuration
+# ================================
+# T: rolling起点 (建议设为1月1日)
+rolling_start: "2020-01-01"
+
+# X: 训练集长度(整数年)
+train_years: 3
+
+# Y: 验证集长度(整数年)
+valid_years: 1
+
+# Z: 测试/滚动步长
+# 支持整数月(nM)和整数年(nY)，例如: 1M, 3M, 6M, 1Y, 2Y
+test_step: "3M"
