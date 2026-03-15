@@ -934,6 +934,7 @@ class TestRunModesExtra:
 
         with mock.patch('qlib.workflow.R', create=True) as mock_r, \
              mock.patch('qlib.backtest.backtest') as mock_bt, \
+             mock.patch('qlib.backtest.executor.SimulatorExecutor', create=True), \
              mock.patch('strategy.create_backtest_strategy'), \
              mock.patch('strategy.load_strategy_config'), \
              mock.patch('strategy.get_backtest_config') as mock_get_bt_cfg, \
