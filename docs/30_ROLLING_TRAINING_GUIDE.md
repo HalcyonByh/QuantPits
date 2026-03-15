@@ -98,9 +98,16 @@ python quantpits/scripts/rolling_train.py --cold-start --all-enabled
 # 指定模型
 python quantpits/scripts/rolling_train.py --cold-start --models linear_Alpha158
 
+# 追加新模型 (Merge Mode)
+python quantpits/scripts/rolling_train.py --merge --models new_model_A
+
 # Dry-run: 仅查看窗口划分
 python quantpits/scripts/rolling_train.py --cold-start --dry-run --all-enabled
 ```
+
+冷启动扩展功能：
+- `--merge`：在已有的一批训练结果之上追加新的模型。已经训练完毕的模型将不再重复训练，仅针对新加入的模型执行全窗口的冷启动，完成后统一合并 `pred.pkl`。
+- `--backtest`：附加此参数，在所有窗口训练预测合并完成后，将自动执行一次针对整体时间的完整 Qlib 回测，生成包含收益率报告与仓位数据的标准化产物。
 
 冷启动流程：
 1. 从 `rolling_config.yaml` 读取参数
@@ -126,6 +133,16 @@ python quantpits/scripts/rolling_train.py --all-enabled
 ```bash
 python quantpits/scripts/rolling_train.py --predict-only --all-enabled
 ```
+
+### 模式四：单独回测评估
+
+如果之前已经运行过冷启动或合并流程，且 `latest_rolling_records.json` 存在预测记录，但缺失回测报告（或希望使用新配置重新回测），可以使用独立回测模式。此模式将跳过所有的训练和预测环节，直接使用历史拼接好的全局预测分 (`pred.pkl`) 执行完整的 Qlib 回测。
+
+```bash
+python quantpits/scripts/rolling_train.py --backtest-only
+```
+
+生成的标准化产物 (`report_normal_<freq>.pkl`, `positions_normal_<freq>.pkl` 等) 以及 indicator 分析指标将保存在 MLflow 的 Combined 实验记录下。
 
 ### 断点恢复
 

@@ -98,9 +98,16 @@ python quantpits/scripts/rolling_train.py --cold-start --all-enabled
 # Specify models
 python quantpits/scripts/rolling_train.py --cold-start --models linear_Alpha158
 
+# Append new models (Merge Mode)
+python quantpits/scripts/rolling_train.py --merge --models new_model_A
+
 # Dry-run: preview window slicing only
 python quantpits/scripts/rolling_train.py --cold-start --dry-run --all-enabled
 ```
+
+Cold Start Add-on Features:
+- `--merge`: Append new models to an existing cold-started state. Already-trained models will not be re-trained. It performs window training only for the newly added models, then merges their global predictions (`pred.pkl`) with existing ones.
+- `--backtest`: Append this flag to automatically execute a complete Qlib backtest over the aggregate time frame after all training, predicting, and merging finishes. Standardized backtest artifacts (returns reports, positions) will be saved.
 
 Cold start workflow:
 1. Read parameters from `rolling_config.yaml`
@@ -126,6 +133,16 @@ Use the most recently trained window's model to predict on new data:
 ```bash
 python quantpits/scripts/rolling_train.py --predict-only --all-enabled
 ```
+
+### Mode 4: Standalone Backtest Evaluation
+
+If a run was previously executed and `latest_rolling_records.json` exists with concatenated predictions, but the comprehensive backtest was skipped (or is desired to be rerun with updated configs), you can use the standalone backtest mode. This mode skips all machine learning training and prediction steps. It directly runs a full Qlib Backtest simulation using the stored concatenated prediction scores (`pred.pkl`).
+
+```bash
+python quantpits/scripts/rolling_train.py --backtest-only
+```
+
+Standardized artifacts (`report_normal_<freq>.pkl`, `positions_normal_<freq>.pkl`, etc.) and indicator summaries will be stored under the designated comprehensive MLflow record.
 
 ### Crash Recovery
 
