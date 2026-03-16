@@ -491,23 +491,27 @@ def generate_ensemble_signal(norm_df, final_weights, static_weights, is_dynamic)
 # ============================================================================
 def save_predictions(final_score, anchor_date, experiment_name, method,
                      model_names, model_metrics, static_weights, is_dynamic,
-                     output_dir, combo_name=None, is_default=False):
+                     output_dir, combo_name=None, is_default=False,
+                     prediction_dir=None):
     """
     保存融合预测和配置。
 
     Args:
+        output_dir: 配置/报告输出目录
         combo_name: 组合名称（多组合模式下使用）
         is_default: 是否为 default combo（额外保存不带 combo_name 的兼容文件）
+        prediction_dir: 预测 CSV 输出目录 (默认 output/predictions)
     """
     # 保存预测
-    os.makedirs("output/predictions", exist_ok=True)
+    pred_dir = prediction_dir or os.path.join("output", "predictions")
+    os.makedirs(pred_dir, exist_ok=True)
     ensemble_df = final_score.to_frame('score')
 
     # 文件命名：带 combo_name 或不带
     if combo_name:
-        pred_file = f"output/predictions/ensemble_{combo_name}_{anchor_date}.csv"
+        pred_file = os.path.join(pred_dir, f"ensemble_{combo_name}_{anchor_date}.csv")
     else:
-        pred_file = f"output/predictions/ensemble_{anchor_date}.csv"
+        pred_file = os.path.join(pred_dir, f"ensemble_{anchor_date}.csv")
 
     ensemble_df.to_csv(pred_file)
     print(f"\nEnsemble 预测已保存: {pred_file}")
@@ -515,7 +519,7 @@ def save_predictions(final_score, anchor_date, experiment_name, method,
 
     # default combo 额外保存一份兼容文件
     if combo_name and is_default:
-        compat_file = f"output/predictions/ensemble_{anchor_date}.csv"
+        compat_file = os.path.join(pred_dir, f"ensemble_{anchor_date}.csv")
         ensemble_df.to_csv(compat_file)
         print(f"Default 兼容文件: {compat_file}")
 
@@ -1322,10 +1326,12 @@ def run_single_combo(combo_name, selected_models, method, manual_weights_str,
     )
 
     # ---- Stage 5: 保存预测 ----
+    prediction_dir = getattr(args, 'prediction_dir', None)
     pred_file = save_predictions(
         final_score, anchor_date, experiment_name, method,
         combo_models, combo_metrics, static_weights, is_dynamic,
-        combo_output_dir, combo_name=combo_name, is_default=is_default
+        combo_output_dir, combo_name=combo_name, is_default=is_default,
+        prediction_dir=prediction_dir
     )
 
     # ---- Stage 6: 回测 ----
@@ -1418,6 +1424,8 @@ def main():
                         help='训练记录文件 (默认 latest_train_records.json)')
     parser.add_argument('--output-dir', type=str, default='output/ensemble',
                         help='输出目录 (默认 output/ensemble)')
+    parser.add_argument('--prediction-dir', type=str, default=None,
+                        help='预测 CSV 输出目录 (默认 output/predictions)')
     parser.add_argument('--no-backtest', action='store_true',
                         help='跳过回测')
     parser.add_argument('--no-charts', action='store_true',

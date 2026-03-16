@@ -96,7 +96,8 @@ def get_cashflow_today(cashflow_config, anchor_date):
 # ============================================================================
 # Stage 1: 加载预测数据
 # ============================================================================
-def load_predictions(prediction_file=None, model_name=None, anchor_date=None):
+def load_predictions(prediction_file=None, model_name=None, anchor_date=None,
+                     prediction_dir=None):
     """
     加载预测数据。
 
@@ -120,7 +121,8 @@ def load_predictions(prediction_file=None, model_name=None, anchor_date=None):
 
     if model_name:
         # 按模型名搜索
-        pattern = os.path.join(PREDICTION_DIR, f"{model_name}_*.csv")
+        _pred_dir = prediction_dir or PREDICTION_DIR
+        pattern = os.path.join(_pred_dir, f"{model_name}_*.csv")
         files = sorted(glob.glob(pattern))
         if not files:
             raise FileNotFoundError(
@@ -136,24 +138,25 @@ def load_predictions(prediction_file=None, model_name=None, anchor_date=None):
     # 优先级: ensemble_YYYY-MM-DD.csv (default combo 的向后兼容副本)
     #       > ensemble_default_YYYY-MM-DD.csv (显式 default combo)
     #       > ensemble_*.csv (任意 combo)
+    _pred_dir = prediction_dir or PREDICTION_DIR
     pred_file = None
 
     # 1) 向后兼容格式: ensemble_YYYY-MM-DD.csv (无 combo 名)
-    compat_pattern = os.path.join(PREDICTION_DIR, "ensemble_[0-9]*.csv")
+    compat_pattern = os.path.join(_pred_dir, "ensemble_[0-9]*.csv")
     compat_files = sorted(glob.glob(compat_pattern))
     if compat_files:
         pred_file = compat_files[-1]
 
     # 2) 若无，尝试 ensemble_default_YYYY-MM-DD.csv
     if not pred_file:
-        default_pattern = os.path.join(PREDICTION_DIR, "ensemble_default_*.csv")
+        default_pattern = os.path.join(_pred_dir, "ensemble_default_*.csv")
         default_files = sorted(glob.glob(default_pattern))
         if default_files:
             pred_file = default_files[-1]
 
     # 3) 若仍无，回退到任意 ensemble_*.csv（按日期排序）
     if not pred_file:
-        pattern = os.path.join(PREDICTION_DIR, "ensemble_*.csv")
+        pattern = os.path.join(_pred_dir, "ensemble_*.csv")
         files = sorted(glob.glob(pattern))
         if not files:
             raise FileNotFoundError(
@@ -295,7 +298,8 @@ def _load_pred_latest_day(pred_source, source_type, valid_instruments=None):
 def generate_model_opinions(focus_instruments, current_holding_instruments,
                             top_k, drop_n, buy_suggestion_factor,
                             sorted_df, output_dir, next_trade_date_string,
-                            dry_run=False):
+                            dry_run=False, record_file=None,
+                            prediction_dir=None):
     """
     加载所有 combo 和单一模型的预测，对每个标的生成判断。
 
@@ -343,13 +347,13 @@ def generate_model_opinions(focus_instruments, current_holding_instruments,
     # 1) Combo 预测
     for combo_name, cfg in combos.items():
         combo_info[combo_name] = cfg.get('models', [])
-        pattern = os.path.join(PREDICTION_DIR, f"ensemble_{combo_name}_*.csv")
+        pattern = os.path.join(prediction_dir or PREDICTION_DIR, f"ensemble_{combo_name}_*.csv")
         files = sorted(glob.glob(pattern))
         if files:
             sources.append((f"combo_{combo_name}", files[-1], 'combo', combo_name))
             continue
         if cfg.get('default', False):
-            pattern2 = os.path.join(PREDICTION_DIR, "ensemble_*.csv")
+            pattern2 = os.path.join(prediction_dir or PREDICTION_DIR, "ensemble_*.csv")
             generic_files = []
             for f_path in sorted(glob.glob(pattern2)):
                 basename = os.path.basename(f_path)
@@ -364,13 +368,13 @@ def generate_model_opinions(focus_instruments, current_holding_instruments,
     for cfg in combos.values():
         all_single_models.update(cfg.get('models', []))
     for model_name in sorted(all_single_models):
-        pattern = os.path.join(PREDICTION_DIR, f"{model_name}_*.csv")
+        pattern = os.path.join(prediction_dir or PREDICTION_DIR, f"{model_name}_*.csv")
         files = sorted(glob.glob(pattern))
         if files:
             sources.append((f"model_{model_name}", files[-1], 'model', model_name))
         else:
             try:
-                train_records_file = os.path.join(ROOT_DIR, 'config', 'latest_train_records.json')
+                train_records_file = record_file or os.path.join(ROOT_DIR, 'config', 'latest_train_records.json')
                 if os.path.exists(train_records_file):
                     with open(train_records_file, 'r') as f:
                         train_records = json.load(f)
@@ -602,6 +606,11 @@ def main():
                         help='直接指定预测文件路径')
     parser.add_argument('--output-dir', type=str, default='output',
                         help='输出目录 (默认 output)')
+    parser.add_argument('--prediction-dir', type=str, default=None,
+                        help='预测文件搜索目录 (默认 output/predictions)')
+    parser.add_argument('--record-file', type=str, default=None,
+                        help='训练记录文件，用于加载单模型 PKL 预测 '
+                             '(默认 config/latest_train_records.json)')
     parser.add_argument('--dry-run', action='store_true',
                         help='仅打印订单计划，不写入文件')
     parser.add_argument('--verbose', action='store_true',
@@ -659,7 +668,8 @@ def main():
     pred_df, source_desc = load_predictions(
         prediction_file=args.prediction_file,
         model_name=args.model,
-        anchor_date=anchor_date
+        anchor_date=anchor_date,
+        prediction_dir=args.prediction_dir
     )
 
     print(f"预测来源   : {source_desc}")
@@ -740,7 +750,8 @@ def main():
     opinions_df, combo_info = generate_model_opinions(
         focus_instruments, current_holding_instruments,
         top_k, drop_n, buy_suggestion_factor,
-        sorted_df, args.output_dir, next_trade_date_string, dry_run=args.dry_run
+        sorted_df, args.output_dir, next_trade_date_string, dry_run=args.dry_run,
+        record_file=args.record_file, prediction_dir=args.prediction_dir
     )
 
     if opinions_df is not None and not opinions_df.empty and args.verbose:

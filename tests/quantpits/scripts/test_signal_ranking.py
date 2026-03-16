@@ -50,8 +50,8 @@ def test_parse_ensemble_config_new_format(mock_env):
     }
     config_file.write_text(json.dumps(cfg))
     
-    # signal_ranking.parse_ensemble_config takes no arguments, reads from ENSEMBLE_CONFIG_FILE
-    result = sr.parse_ensemble_config()
+    # signal_ranking.parse_ensemble_config takes config_file
+    result = sr.parse_ensemble_config(config_file=str(config_file))
     assert "combo_A" in result
     assert result["combo_A"]["method"] == "equal"
 
@@ -65,14 +65,15 @@ def test_parse_ensemble_config_old_format(mock_env):
     }
     config_file.write_text(json.dumps(cfg))
     
-    result = sr.parse_ensemble_config()
+    result = sr.parse_ensemble_config(config_file=str(config_file))
     assert "legacy" in result
     assert result["legacy"]["method"] == "icir_weighted"
     assert result["legacy"]["models"] == ["m1", "m2"]
 
 def test_parse_ensemble_config_empty(mock_env):
     sr, workspace = mock_env
-    result = sr.parse_ensemble_config()
+    config_file = workspace / "config" / "ensemble_config.json"
+    result = sr.parse_ensemble_config(config_file=str(config_file))
     assert result == {}
 
 # ── get_default_combo ────────────────────────────────────────────────────
@@ -149,21 +150,21 @@ def test_find_prediction_file(mock_env):
     (pred_dir / "ensemble_combo_A_2026-03-01.csv").write_text("3")
     
     # Generic latest
-    res = sr.find_prediction_file(combo_name=None)
+    res = sr.find_prediction_file(combo_name=None, prediction_dir=str(pred_dir))
     assert "ensemble_2026-03-02.csv" in res
     
     # Specific combo
-    res = sr.find_prediction_file(combo_name="combo_A")
+    res = sr.find_prediction_file(combo_name="combo_A", prediction_dir=str(pred_dir))
     assert "ensemble_combo_A_2026-03-01.csv" in res
 
 def test_find_prediction_file_not_found(mock_env):
-    sr, _ = mock_env
+    sr, workspace = mock_env
     
     with pytest.raises(FileNotFoundError):
-        sr.find_prediction_file(combo_name="combo_X")
+        sr.find_prediction_file(combo_name="combo_X", prediction_dir=str(workspace / "output" / "predictions"))
         
     with pytest.raises(FileNotFoundError):
-        sr.find_prediction_file(combo_name=None)
+        sr.find_prediction_file(combo_name=None, prediction_dir=str(workspace / "output" / "predictions"))
 
 # ── main ─────────────────────────────────────────────────────────────────
 def test_main_default(mock_env, tmp_path):
@@ -181,7 +182,8 @@ def test_main_default(mock_env, tmp_path):
     df.to_csv(pred_file)
     
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--output-dir', str(workspace / "output" / "ranking")]):
+    with patch.object(sys, 'argv', ['script.py', '--output-dir', str(workspace / "output" / "ranking"),
+                                    '--prediction-dir', str(pred_dir)]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -198,7 +200,8 @@ def test_main_dry_run(mock_env, tmp_path):
     df.to_csv(pred_file)
     
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--output-dir', str(workspace / "output" / "ranking")]):
+    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--output-dir', str(workspace / "output" / "ranking"),
+                                    '--prediction-dir', str(pred_dir)]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -234,7 +237,8 @@ def test_main_all_combos(mock_env, tmp_path):
     df.to_csv(pred_file)
 
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking")]):
+    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking"),
+                                    '--prediction-dir', str(pred_dir)]):
         sr.main()
         
     ranking_dir = workspace / "output" / "ranking"
@@ -249,7 +253,8 @@ def test_main_combo_arg(mock_env, tmp_path):
     df.to_csv(pred_file)
 
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--combo', 'cB', '--output-dir', str(workspace / "output" / "ranking")]):
+    with patch.object(sys, 'argv', ['script.py', '--combo', 'cB', '--output-dir', str(workspace / "output" / "ranking"),
+                                    '--prediction-dir', str(pred_dir)]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -284,7 +289,8 @@ def test_main_all_combos_partial_missing(mock_env, tmp_path):
     df.to_csv(pred_file)
 
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking")]):
+    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking"),
+                                    '--prediction-dir', str(pred_dir)]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -351,7 +357,7 @@ def test_find_prediction_file_fallback(mock_env, tmp_path):
     # Create a file that NOT follows the YYYY-MM-DD pattern
     (pred_dir / "ensemble_weird.csv").write_text("data")
     
-    res = sr.find_prediction_file(combo_name=None)
+    res = sr.find_prediction_file(combo_name=None, prediction_dir=str(pred_dir))
     assert "ensemble_weird.csv" in res
 
 # ── get_default_combo Fallback ────────────────────────────────────────────

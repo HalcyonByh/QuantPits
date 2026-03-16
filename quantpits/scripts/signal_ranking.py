@@ -59,17 +59,21 @@ ENSEMBLE_CONFIG_FILE = os.path.join(ROOT_DIR, "config", "ensemble_config.json")
 # ============================================================================
 # 配置解析 (复用 ensemble_fusion.py 的逻辑)
 # ============================================================================
-def parse_ensemble_config():
+def parse_ensemble_config(config_file=None):
     """
     解析 ensemble_config.json，兼容新旧格式。
+
+    Args:
+        config_file: 配置文件路径 (默认 ENSEMBLE_CONFIG_FILE)
 
     Returns:
         combos: dict, combo_name -> {"models": [], "method": str, "default": bool}
     """
-    if not os.path.exists(ENSEMBLE_CONFIG_FILE):
+    _config_file = config_file or ENSEMBLE_CONFIG_FILE
+    if not os.path.exists(_config_file):
         return {}
 
-    with open(ENSEMBLE_CONFIG_FILE, 'r') as f:
+    with open(_config_file, 'r') as f:
         config = json.load(f)
 
     if 'combos' in config:
@@ -144,22 +148,24 @@ def generate_signal_scores(pred_df, top_n=300):
     return output_df, latest_date
 
 
-def find_prediction_file(combo_name=None, anchor_date=None):
+def find_prediction_file(combo_name=None, anchor_date=None, prediction_dir=None):
     """
     查找预测文件。
 
     Args:
         combo_name: combo 名称，None 表示查找 default ensemble
         anchor_date: 日期限制
+        prediction_dir: 预测文件搜索目录 (默认 PREDICTION_DIR)
 
     Returns:
         pred_file: 文件路径
     """
+    _pred_dir = prediction_dir or PREDICTION_DIR
     if combo_name:
-        pattern = os.path.join(PREDICTION_DIR, f"ensemble_{combo_name}_*.csv")
+        pattern = os.path.join(_pred_dir, f"ensemble_{combo_name}_*.csv")
     else:
         # 查找不带 combo name 的通用 ensemble 文件
-        pattern = os.path.join(PREDICTION_DIR, "ensemble_*.csv")
+        pattern = os.path.join(_pred_dir, "ensemble_*.csv")
 
     files = sorted(glob.glob(pattern))
 
@@ -228,6 +234,8 @@ def main():
                         help='输出 Top N 个标的 (默认 300)')
     parser.add_argument('--output-dir', type=str, default='output/ranking',
                         help='输出目录 (默认 output/ranking)')
+    parser.add_argument('--prediction-dir', type=str, default=None,
+                        help='预测文件搜索目录 (默认 output/predictions)')
     parser.add_argument('--dry-run', action='store_true',
                         help='仅打印，不写入文件')
     args = parser.parse_args()
@@ -259,7 +267,8 @@ def main():
             sys.exit(1)
         for name, cfg in combos.items():
             try:
-                pred_file = find_prediction_file(combo_name=name)
+                pred_file = find_prediction_file(combo_name=name,
+                                                 prediction_dir=args.prediction_dir)
                 tasks.append((name, pred_file))
             except FileNotFoundError as e:
                 print(f"Warning: {e}")
@@ -270,12 +279,13 @@ def main():
         print(f"\n多组合模式: 共 {len(tasks)} 个 combo")
 
     elif args.combo:
-        pred_file = find_prediction_file(combo_name=args.combo)
+        pred_file = find_prediction_file(combo_name=args.combo,
+                                         prediction_dir=args.prediction_dir)
         tasks.append((args.combo, pred_file))
 
     else:
         # Default: 使用最新 ensemble 预测
-        pred_file = find_prediction_file()
+        pred_file = find_prediction_file(prediction_dir=args.prediction_dir)
         tasks.append(('default', pred_file))
 
     # ---- 逐任务处理 ----

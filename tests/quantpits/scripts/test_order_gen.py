@@ -384,7 +384,8 @@ def test_generate_model_opinions_from_qlib_recorder(mock_R, mock_env, tmp_path):
     with patch('quantpits.scripts.order_gen.ROOT_DIR', str(workspace)):
         opinions_df, combo_info = order_gen.generate_model_opinions(
             ["A"], [], top_k=1, drop_n=0, buy_suggestion_factor=1,
-            sorted_df=sorted_df, output_dir=str(tmp_path), next_trade_date_string="2020-01-01"
+            sorted_df=sorted_df, output_dir=str(tmp_path), next_trade_date_string="2020-01-01",
+            record_file=str(train_records_file)
         )
     
     assert "model_gru" in opinions_df.columns
@@ -432,7 +433,8 @@ def test_main_dry_run_full(mock_D, mock_safeguard, mock_price, mock_pred, mock_c
     mock_D.calendar.return_value = [pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")]
     
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--verbose']):
+    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--verbose',
+                                    '--prediction-dir', str(workspace / "output" / "predictions")]):
         order_gen.main()
     
     # Check if a few key print messages were hit (via capsys if we had it, but mostly we want coverage)
