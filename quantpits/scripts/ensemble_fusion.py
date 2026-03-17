@@ -155,89 +155,12 @@ def get_default_combo(combos):
 # ============================================================================
 # Stage 1: 加载预测数据
 # ============================================================================
-def zscore_norm(series):
-    """按天 Z-Score 归一化 (减均值，除标准差)"""
-    def _norm_func(x):
-        std = x.std()
-        if std == 0:
-            return x - x.mean()
-        return (x - x.mean()) / std
-    return series.groupby(level='datetime', group_keys=False).apply(_norm_func)
-
-
 def load_selected_predictions(train_records, selected_models):
     """
     从 Qlib Recorder 加载选定模型的预测值，归一化后返回宽表。
-
-    Args:
-        train_records: 训练记录字典
-        selected_models: 要加载的模型名列表
-
-    Returns:
-        norm_df: DataFrame, index=(datetime, instrument), columns=model_names
-        model_metrics: dict, model_name -> ICIR
     """
-    from qlib.workflow import R
-
-    experiment_name = train_records["experiment_name"]
-    models = train_records["models"]
-
-    all_preds = []
-    model_metrics = {}
-    loaded_models = []
-
-    print(f"\n{'='*60}")
-    print("Stage 1: 加载选定模型预测数据")
-    print(f"{'='*60}")
-    print(f"Experiment: {experiment_name}")
-    print(f"Selected Models ({len(selected_models)}): {selected_models}")
-
-    for model_name in selected_models:
-        if model_name not in models:
-            print(f"  [{model_name}] SKIPPED: 不在训练记录中")
-            continue
-
-        record_id = models[model_name]
-        try:
-            recorder = R.get_recorder(
-                recorder_id=record_id, experiment_name=experiment_name
-            )
-
-            # 加载预测值
-            pred = recorder.load_object("pred.pkl")
-            if isinstance(pred, pd.Series):
-                pred = pred.to_frame("score")
-            pred.columns = [model_name]
-            all_preds.append(pred)
-            loaded_models.append(model_name)
-
-            # 读取 ICIR 指标
-            raw_metrics = recorder.list_metrics()
-            metric_val = 0.0
-            for k, v in raw_metrics.items():
-                if "ICIR" in k:
-                    metric_val = v
-                    break
-            model_metrics[model_name] = metric_val
-
-            print(f"  [{model_name}] OK. Preds={len(pred)}, ICIR={metric_val:.4f}")
-        except Exception as e:
-            print(f"  [{model_name}] FAILED: {e}")
-
-    print(f"\n成功加载 {len(all_preds)}/{len(selected_models)} 个模型")
-
-    if not all_preds:
-        raise ValueError("未加载到任何预测数据！")
-
-    # 合并 & Z-Score 归一化 (注意：不要在这里提前 dropna，避免由于单模型标的变动殃及其他模型)
-    merged_df = pd.concat(all_preds, axis=1)
-    print(f"合并后数据维度: {merged_df.shape}")
-
-    norm_df = pd.DataFrame(index=merged_df.index)
-    for col in merged_df.columns:
-        norm_df[col] = zscore_norm(merged_df[col].dropna())
-
-    return norm_df, model_metrics, loaded_models
+    from quantpits.utils.predict_utils import load_predictions_from_recorder
+    return load_predictions_from_recorder(train_records, selected_models)
 
 
 def filter_norm_df_by_args(norm_df, args):
@@ -492,40 +415,65 @@ def generate_ensemble_signal(norm_df, final_weights, static_weights, is_dynamic)
 def save_predictions(final_score, anchor_date, experiment_name, method,
                      model_names, model_metrics, static_weights, is_dynamic,
                      output_dir, combo_name=None, is_default=False,
-                     prediction_dir=None):
+                     prediction_dir=None, save_csv=False):
     """
     保存融合预测和配置。
-
-    Args:
-        output_dir: 配置/报告输出目录
-        combo_name: 组合名称（多组合模式下使用）
-        is_default: 是否为 default combo（额外保存不带 combo_name 的兼容文件）
-        prediction_dir: 预测 CSV 输出目录 (默认 output/predictions)
     """
-    # 保存预测
-    pred_dir = prediction_dir or os.path.join("output", "predictions")
-    os.makedirs(pred_dir, exist_ok=True)
+    from quantpits.utils.predict_utils import save_predictions_to_recorder
     ensemble_df = final_score.to_frame('score')
 
-    # 文件命名：带 combo_name 或不带
-    if combo_name:
-        pred_file = os.path.join(pred_dir, f"ensemble_{combo_name}_{anchor_date}.csv")
-    else:
-        pred_file = os.path.join(pred_dir, f"ensemble_{anchor_date}.csv")
+    combo_display = combo_name if combo_name else "ensemble_raw"
+    record_id = save_predictions_to_recorder(
+        pred=ensemble_df,
+        experiment_name="Ensemble_Fusion",
+        model_name=combo_display,
+        tags={
+            "anchor_date": anchor_date,
+            "weight_mode": method,
+            "combo_name": combo_display
+        }
+    )
+    print(f"\nEnsemble 预测已保存至 Recorder: {record_id} (Experiment: Ensemble_Fusion)")
 
-    ensemble_df.to_csv(pred_file)
-    print(f"\nEnsemble 预测已保存: {pred_file}")
-    print(f"Total: {len(ensemble_df)} records")
+    # 更新 ensemble_records.json
+    records_file = os.path.join(ROOT_DIR, "config", "ensemble_records.json")
+    os.makedirs(os.path.dirname(records_file), exist_ok=True)
+    
+    ensemble_records = {}
+    if os.path.exists(records_file):
+        with open(records_file, "r") as f:
+            ensemble_records = json.load(f)
+            
+    ensemble_records.setdefault("combos", {})
+    ensemble_records["combos"][combo_display] = record_id
+    if is_default:
+        ensemble_records["default_combo"] = combo_display
+        ensemble_records["default_record_id"] = record_id
+        
+    with open(records_file, "w") as f:
+        json.dump(ensemble_records, f, indent=4)
 
-    # default combo 额外保存一份兼容文件
-    if combo_name and is_default:
-        compat_file = os.path.join(pred_dir, f"ensemble_{anchor_date}.csv")
-        ensemble_df.to_csv(compat_file)
-        print(f"Default 兼容文件: {compat_file}")
+    # 可选保存 CSV
+    pred_file = None
+    if save_csv:
+        pred_dir = prediction_dir or os.path.join("output", "predictions")
+        os.makedirs(pred_dir, exist_ok=True)
+        if combo_name:
+            pred_file = os.path.join(pred_dir, f"ensemble_{combo_name}_{anchor_date}.csv")
+        else:
+            pred_file = os.path.join(pred_dir, f"ensemble_{anchor_date}.csv")
+
+        ensemble_df.to_csv(pred_file)
+        print(f"Ensemble CSV 已额外保存: {pred_file}")
+        
+        if combo_name and is_default:
+            compat_file = os.path.join(pred_dir, f"ensemble_{anchor_date}.csv")
+            ensemble_df.to_csv(compat_file)
 
     # 保存配置
     os.makedirs(output_dir, exist_ok=True)
     config_out = {
+        'recorder_id': record_id,
         'anchor_date': anchor_date,
         'experiment_name': experiment_name,
         'weight_mode': method,
@@ -545,32 +493,17 @@ def save_predictions(final_score, anchor_date, experiment_name, method,
         json.dump(config_out, f, indent=4, ensure_ascii=False)
     print(f"Config 已保存: {config_file}")
 
-    return pred_file
+    return pred_file or record_id
 
 
 # ============================================================================
 # Stage 6: 回测
 # ============================================================================
-def extract_report_df(metrics):
-    """从回测结果中提取 report DataFrame"""
-    if isinstance(metrics, dict):
-        val = list(metrics.values())[0]
-        return val[0] if isinstance(val, tuple) else val
-    elif isinstance(metrics, tuple):
-        first = metrics[0]
-        if isinstance(first, pd.DataFrame):
-            return first
-        elif isinstance(first, tuple) and len(first) >= 1:
-            return first[0]
-        return metrics
-    return metrics
-
-
 def run_backtest(final_score, top_k, drop_n, benchmark, freq, st_config=None, bt_config=None, verbose=False):
     """运行回测"""
-    from qlib.backtest import backtest
-    from qlib.backtest.executor import SimulatorExecutor
     from quantpits.utils import strategy
+    from quantpits.utils.backtest_utils import run_backtest_with_strategy, standard_evaluate_portfolio
+    from qlib.backtest.exchange import Exchange
 
     if st_config is None:
         st_config = strategy.load_strategy_config()
@@ -589,53 +522,31 @@ def run_backtest(final_score, top_k, drop_n, benchmark, freq, st_config=None, bt
 
     strategy_inst = strategy.create_backtest_strategy(final_score, st_config)
 
-    executor_obj = SimulatorExecutor(
-        time_per_step=freq,
-        generate_portfolio_metrics=True,
-        verbose=verbose
+    # 准备共享 Exchange (ensemble 原本不需要共享，但接口需要传 trade_exchange)
+    all_codes = sorted(final_score.index.get_level_values(1).unique().tolist())
+    exchange_kwargs = bt_config["exchange_kwargs"].copy()
+    exchange_freq = exchange_kwargs.pop("freq", "day")
+
+    trade_exchange = Exchange(
+        freq=exchange_freq,
+        start_time=bt_start,
+        end_time=bt_end,
+        codes=all_codes,
+        **exchange_kwargs
     )
 
     print(f"\n开始回测...")
-    raw_portfolio_metrics, raw_indicators = backtest(
-        executor=executor_obj,
-        strategy=strategy_inst,
-        start_time=bt_start,
-        end_time=bt_end,
-        account=bt_config['account'],
-        benchmark=benchmark,
-        exchange_kwargs=bt_config['exchange_kwargs']
+    report_df, executor_obj = run_backtest_with_strategy(
+        strategy_inst=strategy_inst,
+        trade_exchange=trade_exchange,
+        freq=freq,
+        account_cash=bt_config['account'],
+        bt_start=bt_start,
+        bt_end=bt_end
     )
 
-    report_df = extract_report_df(raw_portfolio_metrics)
-
     if report_df is not None:
-        # Use PortfolioAnalyzer for consistent summary metrics
-        from quantpits.scripts.analysis.portfolio_analyzer import PortfolioAnalyzer
-        
-        # Prepare daily_amount_df (Standardize and convert returns to NAV before up-sampling)
-        da_df = pd.DataFrame(index=report_df.index)
-        da_df['收盘价值'] = report_df['account']
-        da_df[benchmark] = (1 + report_df['bench']).cumprod()
-        if not isinstance(da_df.index, pd.DatetimeIndex):
-            da_df.index = pd.to_datetime(da_df.index)
-        da_df.index.name = '成交日期'
-        
-        # Up-sample to daily frequency to ensure PortfolioAnalyzer's day-counting is correct
-        from qlib.data import D
-        bt_start_dt = da_df.index.min()
-        bt_end_dt = da_df.index.max()
-        daily_dates = D.calendar(start_time=bt_start_dt, end_time=bt_end_dt, freq='day')
-        da_df = da_df.reindex(daily_dates, method='ffill').dropna(subset=['收盘价值'])
-        da_df = da_df.reset_index().rename(columns={'index': '成交日期'})
-        
-        pa = PortfolioAnalyzer(
-            daily_amount_df=da_df, 
-            trade_log_df=pd.DataFrame(), 
-            holding_log_df=pd.DataFrame(),
-            benchmark_col=benchmark, 
-            freq=freq
-        )
-        metrics = pa.calculate_traditional_metrics()
+        metrics = standard_evaluate_portfolio(report_df, benchmark, freq)
         
         annualized_return = metrics.get('CAGR', 0)
         max_drawdown = metrics.get('Max_Drawdown', 0)
@@ -644,7 +555,7 @@ def run_backtest(final_score, top_k, drop_n, benchmark, freq, st_config=None, bt
         calmar = metrics.get('Calmar', 0)
 
         initial_cash = bt_config['account']
-        final_nav = report_df.iloc[-1]['account']
+        final_nav = report_df.iloc[-1]['nav']
 
         print(f'\n{"="*20} 回测绩效报告 {"="*20}')
         print(f'回测区间     : {bt_start} ~ {bt_end}')
@@ -657,8 +568,6 @@ def run_backtest(final_score, top_k, drop_n, benchmark, freq, st_config=None, bt
         if not pd.isna(calmar):
             print(f'Calmar Ratio : {calmar:.4f}')
 
-        # Standardize report output (Account object gives 'account' column)
-        report_df['nav'] = report_df['account']
     else:
         print("【错误】未能提取回测数据")
 
@@ -1331,7 +1240,7 @@ def run_single_combo(combo_name, selected_models, method, manual_weights_str,
         final_score, anchor_date, experiment_name, method,
         combo_models, combo_metrics, static_weights, is_dynamic,
         combo_output_dir, combo_name=combo_name, is_default=is_default,
-        prediction_dir=prediction_dir
+        prediction_dir=prediction_dir, save_csv=getattr(args, 'save_csv', False)
     )
 
     # ---- Stage 6: 回测 ----
@@ -1438,10 +1347,10 @@ def main():
                         help='仅使用最后 N 年的预测数据 (作为 OOS 测试集)')
     parser.add_argument('--only-last-months', type=int, default=0,
                         help='仅使用最后 N 个月的预测数据 (作为 OOS 测试集)')
-    parser.add_argument('--detailed-analysis', action='store_true',
-                        help='生成详尽的回测分析报告（类似实盘分析）')
-    parser.add_argument('--verbose-backtest', action='store_true',
-                        help='开启 Qlib 回测的详细模式')
+    parser.add_argument('--detailed-analysis', action='store_true', help='生成详尽的回测分析报告（类似实盘分析）')
+    parser.add_argument('--verbose-backtest', action='store_true', help='开启 Qlib 回测的详细日志模式')
+    parser.add_argument('--save-csv', action='store_true', help='除了保存为 Qlib Recorder 外，同时输出 predictions csv')
+
     args = parser.parse_args()
 
     from quantpits.utils import env

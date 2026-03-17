@@ -97,96 +97,65 @@ def get_cashflow_today(cashflow_config, anchor_date):
 # Stage 1: 加载预测数据
 # ============================================================================
 def load_predictions(prediction_file=None, model_name=None, anchor_date=None,
-                     prediction_dir=None):
+                     prediction_dir=None, record_file=None, combo_name=None):
     """
     加载预测数据。
 
-    优先级: prediction_file > model_name > 自动搜索 ensemble CSV
-
-    Args:
-        prediction_file: 直接指定的预测文件路径
-        model_name: 单模型名称
-        anchor_date: 锚点日期
-
-    Returns:
-        pred_df: DataFrame with 'score' column, index=(instrument,) or (instrument, datetime)
-        source_desc: str, 预测来源描述
+    优先级: prediction_file > model_name > 自动搜索 ensemble 记录
     """
     if prediction_file:
-        # 直接指定文件
         if not os.path.exists(prediction_file):
             raise FileNotFoundError(f"指定的预测文件不存在: {prediction_file}")
         pred_df = pd.read_csv(prediction_file, index_col=[0, 1], parse_dates=[1])
         return pred_df, f"指定文件: {prediction_file}"
 
+    from qlib.workflow import R
+    
     if model_name:
-        # 按模型名搜索
-        _pred_dir = prediction_dir or PREDICTION_DIR
-        pattern = os.path.join(_pred_dir, f"{model_name}_*.csv")
-        files = sorted(glob.glob(pattern))
-        if not files:
-            raise FileNotFoundError(
-                f"未找到模型 {model_name} 的预测文件。\n"
-                f"搜索路径: {pattern}\n"
-                f"请先运行训练/预测脚本。"
-            )
-        pred_file = files[-1]
-        pred_df = pd.read_csv(pred_file, index_col=[0, 1], parse_dates=[1])
-        return pred_df, f"单模型: {model_name} ({os.path.basename(pred_file)})"
+        record_file = record_file or os.path.join(ROOT_DIR, "latest_train_records.json")
+        if not os.path.exists(record_file):
+            raise FileNotFoundError(f"无法找到训练记录文件: {record_file}")
+        with open(record_file, 'r') as f:
+            records = json.load(f)
+        models = records.get("models", {})
+        if model_name not in models:
+            raise ValueError(f"模型 {model_name} 的训练记录未找到")
+        
+        record_id = models[model_name]
+        experiment_name = records.get("experiment_name")
+        recorder = R.get_recorder(recorder_id=record_id, experiment_name=experiment_name)
+        pred_df = recorder.load_object("pred.pkl")
+        if isinstance(pred_df, pd.Series):
+            pred_df = pred_df.to_frame('score')
+        return pred_df, f"单模型: {model_name} (Record: {record_id})"
 
-    # 自动搜索 ensemble 预测
-    # 优先级: ensemble_YYYY-MM-DD.csv (default combo 的向后兼容副本)
-    #       > ensemble_default_YYYY-MM-DD.csv (显式 default combo)
-    #       > ensemble_*.csv (任意 combo)
-    _pred_dir = prediction_dir or PREDICTION_DIR
-    pred_file = None
-
-    # 1) 向后兼容格式: ensemble_YYYY-MM-DD.csv (无 combo 名)
-    compat_pattern = os.path.join(_pred_dir, "ensemble_[0-9]*.csv")
-    compat_files = sorted(glob.glob(compat_pattern))
-    if compat_files:
-        pred_file = compat_files[-1]
-
-    # 2) 若无，尝试 ensemble_default_YYYY-MM-DD.csv
-    if not pred_file:
-        default_pattern = os.path.join(_pred_dir, "ensemble_default_*.csv")
-        default_files = sorted(glob.glob(default_pattern))
-        if default_files:
-            pred_file = default_files[-1]
-
-    # 3) 若仍无，回退到任意 ensemble_*.csv（按日期排序）
-    if not pred_file:
-        pattern = os.path.join(_pred_dir, "ensemble_*.csv")
-        files = sorted(glob.glob(pattern))
-        if not files:
-            raise FileNotFoundError(
-                "未找到 ensemble 预测文件。\n"
-                f"搜索路径: {pattern}\n"
-                "请先运行 ensemble_fusion.py，或使用 --model 指定单模型。"
-            )
-        pred_file = files[-1]
-    pred_df = pd.read_csv(pred_file, index_col=[0, 1], parse_dates=[1])
-
-    # 尝试加载对应的 ensemble 配置
-    config_pattern = os.path.join(ROOT_DIR, "output", "ensemble", "ensemble_fusion_config_*.json")
-    config_files = sorted(glob.glob(config_pattern))
-    # 也检查旧格式位置
-    if not config_files:
-        config_pattern = os.path.join(ROOT_DIR, "output", "ensemble_config_*.json")
-        config_files = sorted(glob.glob(config_pattern))
-
-    ensemble_info = ""
-    if config_files:
-        try:
-            with open(config_files[-1], 'r') as f:
-                ens_cfg = json.load(f)
-            method = ens_cfg.get('weight_mode', ens_cfg.get('method', 'unknown'))
-            models = ens_cfg.get('models_used', [])
-            ensemble_info = f"\n  融合方式: {method}\n  模型组合: {', '.join(models)}"
-        except Exception:
-            pass
-
-    return pred_df, f"Ensemble 融合 ({os.path.basename(pred_file)}){ensemble_info}"
+    # 自动搜索 ensemble 记录
+    records_file = os.path.join(ROOT_DIR, "config", "ensemble_records.json")
+    if not os.path.exists(records_file):
+         raise FileNotFoundError("未找到 ensemble_records.json，请先运行 ensemble_fusion.py")
+    
+    with open(records_file, 'r') as f:
+         ensemble_records = json.load(f)
+         
+    combo_display = combo_name
+    if not combo_display:
+         combo_display = ensemble_records.get("default_combo")
+    
+    combos = ensemble_records.get("combos", {})
+    if not combo_display or combo_display not in combos:
+         # Fallback to the first available combo
+         if not combos:
+              raise ValueError("ensemble_records.json 中没有有效的融合记录")
+         combo_display = list(combos.keys())[-1]
+         
+    record_id = combos[combo_display]
+    recorder = R.get_recorder(recorder_id=record_id, experiment_name="Ensemble_Fusion")
+    pred_df = recorder.load_object("pred.pkl")
+    if isinstance(pred_df, pd.Series):
+        pred_df = pred_df.to_frame('score')
+        
+    engine_desc = f"Ensemble 融合: {combo_display} (Record: {record_id})"
+    return pred_df, engine_desc
 
 
 # ============================================================================
@@ -344,51 +313,56 @@ def generate_model_opinions(focus_instruments, current_holding_instruments,
     sources = []
     combo_info = {}
 
+    from qlib.workflow import R
+
     # 1) Combo 预测
+    ensemble_records_file = os.path.join(ROOT_DIR, "config", "ensemble_records.json")
+    ensemble_records = {}
+    if os.path.exists(ensemble_records_file):
+        with open(ensemble_records_file, 'r') as f:
+            ensemble_records = json.load(f)
+            
+    combos_recorded = ensemble_records.get("combos", {})
     for combo_name, cfg in combos.items():
         combo_info[combo_name] = cfg.get('models', [])
-        pattern = os.path.join(prediction_dir or PREDICTION_DIR, f"ensemble_{combo_name}_*.csv")
-        files = sorted(glob.glob(pattern))
-        if files:
-            sources.append((f"combo_{combo_name}", files[-1], 'combo', combo_name))
-            continue
-        if cfg.get('default', False):
-            pattern2 = os.path.join(prediction_dir or PREDICTION_DIR, "ensemble_*.csv")
-            generic_files = []
-            for f_path in sorted(glob.glob(pattern2)):
-                basename = os.path.basename(f_path)
-                rest = basename[len("ensemble_"):-len(".csv")]
-                if len(rest) == 10 and rest[4] == '-' and rest[7] == '-':
-                    generic_files.append(f_path)
-            if generic_files:
-                sources.append((f"combo_{combo_name}", generic_files[-1], 'combo', combo_name))
+        record_id = combos_recorded.get(combo_name) or combos_recorded.get(f"ensemble_{combo_name}") or combos_recorded.get(combo_name.replace("combo_", ""))
+        # if not found, maybe it's the default combo
+        if not record_id and cfg.get('default', False):
+            record_id = ensemble_records.get("default_record_id")
+            
+        if record_id:
+            try:
+                recorder = R.get_recorder(recorder_id=record_id, experiment_name="Ensemble_Fusion")
+                pred_pkl = recorder.load_object('pred.pkl')
+                if pred_pkl is not None and len(pred_pkl) > 0:
+                    sources.append((f"combo_{combo_name}", pred_pkl, 'model_pkl', combo_name))
+            except Exception:
+                pass
 
-    # 2) 单一模型预测 (CSV 优先, Qlib Recorder 后备)
+    # 2) 单一模型预测 (Qlib Recorder)
     all_single_models = set()
     for cfg in combos.values():
         all_single_models.update(cfg.get('models', []))
+        
     for model_name in sorted(all_single_models):
-        pattern = os.path.join(prediction_dir or PREDICTION_DIR, f"{model_name}_*.csv")
-        files = sorted(glob.glob(pattern))
-        if files:
-            sources.append((f"model_{model_name}", files[-1], 'model', model_name))
-        else:
-            try:
-                train_records_file = record_file or os.path.join(ROOT_DIR, 'config', 'latest_train_records.json')
-                if os.path.exists(train_records_file):
-                    with open(train_records_file, 'r') as f:
-                        train_records = json.load(f)
-                    record_id = train_records.get('models', {}).get(model_name)
-                    if record_id:
-                        from qlib.workflow import R
-                        experiment_name = train_records.get('experiment_name', 'prod_train')
-                        recorder = R.get_recorder(recorder_id=record_id,
-                                                  experiment_name=experiment_name)
-                        pred_pkl = recorder.load_object('pred.pkl')
-                        if pred_pkl is not None and len(pred_pkl) > 0:
-                            sources.append((f"model_{model_name}", pred_pkl, 'model_pkl', model_name))
-            except Exception:
-                pass
+        try:
+            train_records_file = record_file or os.path.join(ROOT_DIR, 'latest_train_records.json')
+            if not os.path.exists(train_records_file):
+                train_records_file = os.path.join(ROOT_DIR, 'config', 'latest_train_records.json')
+                
+            if os.path.exists(train_records_file):
+                with open(train_records_file, 'r') as f:
+                    train_records = json.load(f)
+                record_id = train_records.get('models', {}).get(model_name)
+                if record_id:
+                    experiment_name = train_records.get('experiment_name', 'prod_train')
+                    recorder = R.get_recorder(recorder_id=record_id,
+                                              experiment_name=experiment_name)
+                    pred_pkl = recorder.load_object('pred.pkl')
+                    if pred_pkl is not None and len(pred_pkl) > 0:
+                        sources.append((f"model_{model_name}", pred_pkl, 'model_pkl', model_name))
+        except Exception:
+            pass
 
     if not sources:
         print("  未找到额外预测文件，跳过多模型判断")
@@ -669,7 +643,8 @@ def main():
         prediction_file=args.prediction_file,
         model_name=args.model,
         anchor_date=anchor_date,
-        prediction_dir=args.prediction_dir
+        prediction_dir=args.prediction_dir,
+        record_file=args.record_file
     )
 
     print(f"预测来源   : {source_desc}")

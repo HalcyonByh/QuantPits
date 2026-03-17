@@ -5,7 +5,8 @@ import importlib
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
+import qlib.workflow
+from unittest.mock import patch, MagicMock, mock_open
 
 
 @pytest.fixture(autouse=True)
@@ -130,44 +131,53 @@ def test_load_holding_log(mock_env):
 
 # ── load_model_predictions ───────────────────────────────────────────────
 
-def test_load_model_predictions(mock_env):
-    utils, workspace, _, _ = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True)
-
+@patch('builtins.open', new_callable=mock_open, read_data='{"models": {"GATs": "fake_record_id"}, "experiment_name": "fake_exp"}')
+@patch('quantpits.scripts.analysis.utils.os.path.exists')
+def test_load_model_predictions(mock_exists, mock_file, mock_env):
+    utils, _, _, _ = mock_env
+    # Ensure our mocked path returns True
+    mock_exists.return_value = True
+    
     df = pd.DataFrame({
-        "datetime": ["2026-03-01", "2026-03-01"],
+        "datetime": pd.to_datetime(["2026-03-01", "2026-03-01"]),
         "instrument": ["SZ000001", "SZ000002"],
         "score": [0.5, 0.3]
-    })
-    df.to_csv(pred_dir / "GATs_2026-03-01.csv", index=False)
-
-    result = utils.load_model_predictions("GATs")
-    assert not result.empty
-    assert "score" in result.columns
+    }).set_index(["datetime", "instrument"])
+    
+    with patch('qlib.workflow.R') as mock_R:
+        mock_rec = MagicMock()
+        mock_rec.load_object.return_value = df
+        mock_R.get_recorder.return_value = mock_rec
+        
+        result = utils.load_model_predictions("GATs")
+        assert not result.empty
+        assert "score" in result.columns
 
 
 def test_load_model_predictions_no_files(mock_env):
     utils, workspace, _, _ = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True)
-
+    # latest_train_records.json doesn't exist
     result = utils.load_model_predictions("Nonexistent")
     assert result.empty
 
 
-def test_load_model_predictions_rename_columns(mock_env):
-    utils, workspace, _, _ = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True)
-
-    # CSV with column '0' instead of 'score'
+@patch('builtins.open', new_callable=mock_open, read_data='{"models": {"test_model": "fake_record_id"}, "experiment_name": "fake_exp"}')
+@patch('quantpits.scripts.analysis.utils.os.path.exists')
+def test_load_model_predictions_rename_columns(mock_exists, mock_file, mock_env):
+    utils, _, _, _ = mock_env
+    mock_exists.return_value = True
+    
+    # DataFrame with column '0' instead of 'score'
     df = pd.DataFrame({
-        "datetime": ["2026-03-01"],
+        "datetime": pd.to_datetime(["2026-03-01"]),
         "instrument": ["SZ000001"],
         "0": [0.5]
-    })
-    df.to_csv(pred_dir / "test_model_2026-03-01.csv", index=False)
-
-    result = utils.load_model_predictions("test_model")
-    assert "score" in result.columns
+    }).set_index(["datetime", "instrument"])
+    
+    with patch('qlib.workflow.R') as mock_R:
+        mock_rec = MagicMock()
+        mock_rec.load_object.return_value = df
+        mock_R.get_recorder.return_value = mock_rec
+        
+        result = utils.load_model_predictions("test_model")
+        assert "score" in result.columns

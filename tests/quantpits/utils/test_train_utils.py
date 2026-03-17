@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import patch, mock_open, MagicMock
 import pandas as pd
 import numpy as np
+import qlib.workflow
 
 # Mock the constants in train_utils before importing
 @pytest.fixture(autouse=True)
@@ -343,10 +344,6 @@ def test_train_single_model(mock_env_constants, tmp_path):
                 # Verify performance extraction
                 assert 'IC_Mean' in result['performance']
                 assert np.isclose(result['performance']['IC_Mean'], 0.2)
-                
-                # Verify prediction saved
-                pred_path = os.path.join(str(pred_dir), "DummyLGBM_2026-03-01.csv")
-                assert os.path.exists(pred_path)
                 
                 # Verify R interactions
                 mock_R.start.assert_called_once()

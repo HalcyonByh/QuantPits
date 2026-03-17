@@ -235,14 +235,7 @@ def predict_single_model(model_name, model_info, params, experiment_name, source
             print(f"[{model_name}] Predicting...")
             pred = model.predict(dataset=dataset)
 
-            # 保存预测结果为 CSV（便于人工查看）
-            os.makedirs(PREDICTION_OUTPUT_DIR, exist_ok=True)
-            pred_file = os.path.join(
-                PREDICTION_OUTPUT_DIR,
-                f"{model_name}_{params['anchor_date']}.csv"
-            )
-            pred.to_csv(pred_file)
-            print(f"[{model_name}] Predictions saved to {pred_file}")
+
 
             # 运行 SignalRecord（生成 pred.pkl + sig_analysis/ic.pkl）
             record_cfgs = task_config['task'].get('record', [])

@@ -132,37 +132,48 @@ def load_holding_log():
 
 def load_model_predictions(model_name, start_date=None, end_date=None):
     """
-    Load a model's prediction series from CSVs spanning the requested dates.
-    Here we expect output/predictions/model_YYYY-MM-DD.csv to exist.
+    Load a model's prediction series from Qlib Recorders spanning the requested dates.
+    Here we expect the model record id to be found in config/latest_train_records.json or config/latest_rolling_records.json
     """
-    import glob
-    pattern = os.path.join(PREDICTION_DIR, f"{model_name}_*.csv")
-    files = sorted(glob.glob(pattern))
+    from qlib.workflow import R
     
-    dfs = []
-    for f in files:
-        base = os.path.basename(f)
-        date_str = base.replace(f"{model_name}_", "").replace(".csv", "")
-        # Very simple date filtering (lexicographical)
-        if start_date and date_str < start_date:
-            continue
-        # We MUST NOT skip if date_str > end_date, because newer files 
-        # still contain the historical predictions up to end_date.
-        
-        df = pd.read_csv(f)
-        if '0' in df.columns and 'score' not in df.columns:
-            df = df.rename(columns={'0': 'score'})
-        # Normalize the column names
-        num_cols = df.select_dtypes(include='number').columns.tolist()
-        if 'score' not in df.columns and num_cols:
-            df = df.rename(columns={num_cols[0]: 'score'})
-            
-        dfs.append(df)
-        
-    if not dfs:
+    # Try looking in latest_train_records.json
+    record_id, experiment_name = None, None
+    for rec_file in ['latest_train_records.json', 'latest_rolling_records.json']:
+        file_path = os.path.join(ROOT_DIR, "config", rec_file)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    rec_data = json.load(f)
+                if model_name in rec_data.get('models', {}):
+                    record_id = rec_data['models'][model_name]
+                    experiment_name = rec_data.get('experiment_name')
+                    break
+            except Exception:
+                pass
+                
+    if not record_id:
+        print(f"Warning: Model {model_name} not found in train/rolling records.")
         return pd.DataFrame()
         
-    concat_df = pd.concat(dfs)
+    try:
+        recorder = R.get_recorder(recorder_id=record_id, experiment_name=experiment_name)
+        df = recorder.load_object("pred.pkl")
+    except Exception as e:
+        print(f"Error loading pred.pkl from recorder {record_id} for {model_name}: {e}")
+        return pd.DataFrame()
+        
+    if isinstance(df, pd.Series):
+        df = df.to_frame('score')
+        
+    if '0' in df.columns and 'score' not in df.columns:
+        df = df.rename(columns={'0': 'score'})
+    # Normalize the column names
+    num_cols = df.select_dtypes(include='number').columns.tolist()
+    if 'score' not in df.columns and num_cols:
+        df = df.rename(columns={num_cols[0]: 'score'})
+        
+    concat_df = df
     if 'datetime' in concat_df.columns:
         concat_df['datetime'] = pd.to_datetime(concat_df['datetime'])
         concat_df = concat_df.set_index(['datetime', 'instrument']).sort_index()
@@ -180,3 +191,4 @@ def load_model_predictions(model_name, start_date=None, end_date=None):
         concat_df = concat_df[concat_df.index.get_level_values('datetime') <= pd.to_datetime(end_date)]
             
     return concat_df
+

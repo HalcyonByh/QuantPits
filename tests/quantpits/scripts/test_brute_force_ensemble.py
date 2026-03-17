@@ -37,13 +37,14 @@ def mock_env(monkeypatch, tmp_path):
 
 # ── zscore_norm ──────────────────────────────────────────────────────────
 def test_zscore_norm(mock_env):
+    import quantpits.utils.predict_utils as pu
     bfe, _ = mock_env
     series = pd.Series([1, 2, 3, 10, 20, 30], 
                        index=pd.MultiIndex.from_arrays([
                            pd.to_datetime(["2020-01-01"]*3 + ["2020-01-02"]*3),
                            ["A", "B", "C", "A", "B", "C"]
                        ], names=["datetime", "instrument"]))
-    normed = bfe.zscore_norm(series)
+    normed = pu.zscore_norm(series)
     assert np.isclose(normed.xs("2020-01-01", level="datetime").mean(), 0)
     assert np.isclose(normed.xs("2020-01-01", level="datetime").std(), 1)
     
@@ -51,7 +52,7 @@ def test_zscore_norm(mock_env):
     zero_series = pd.Series([1.0, 1.0, 1.0], index=pd.MultiIndex.from_arrays([
         pd.to_datetime(["2020-01-01"]*3), ["A", "B", "C"]
     ], names=["datetime", "instrument"]))
-    assert np.all(bfe.zscore_norm(zero_series) == 0.0)
+    assert np.all(pu.zscore_norm(zero_series) == 0.0)
 
 # ── load_combo_groups ────────────────────────────────────────────────────
 def test_load_combo_groups(mock_env):
@@ -151,20 +152,21 @@ def test_split_is_oos_by_args(mock_env):
 
 # ── extract_report_df ────────────────────────────────────────────────────
 def test_extract_report_df(mock_env):
+    import quantpits.utils.predict_utils as pu
     bfe, _ = mock_env
     df = pd.DataFrame({"A": [1]})
     
     metrics_dict = {"fold1": (df, "other")}
-    assert bfe.extract_report_df(metrics_dict).equals(df)
+    assert pu.extract_report_df(metrics_dict).equals(df)
     
     metrics_tuple = (df, "other")
-    assert bfe.extract_report_df(metrics_tuple).equals(df)
+    assert pu.extract_report_df(metrics_tuple).equals(df)
     
-    assert bfe.extract_report_df(df).equals(df)
+    assert pu.extract_report_df(df).equals(df)
     
     # Case: metrics is a tuple, first element is a tuple (lines 368-370)
     metrics_nested = ((df, "extra"),)
-    assert bfe.extract_report_df(metrics_nested) is df
+    assert pu.extract_report_df(metrics_nested) is df
 
 # ── load_config ──────────────────────────────────────────────────────────
 def test_load_config(mock_env, tmp_path):
@@ -272,7 +274,7 @@ def test_split_is_oos_with_dates(mock_env):
 # ── load_predictions ─────────────────────────────────────────────────────
 from unittest.mock import patch
 
-@patch('qlib.workflow.R', create=True)
+@patch('quantpits.utils.predict_utils.R')
 def test_load_predictions(mock_R, mock_env):
     bfe, _ = mock_env
 

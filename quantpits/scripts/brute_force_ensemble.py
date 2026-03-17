@@ -130,78 +130,12 @@ def load_config(record_file="latest_train_records.json"):
 # Stage 1: 加载预测数据
 # ============================================================================
 
-def zscore_norm(series):
-    """按天 Z-Score 归一化 (减均值，除标准差)"""
-    def _norm_func(x):
-        std = x.std()
-        if std == 0:
-            return x - x.mean()
-        return (x - x.mean()) / std
-    return series.groupby(level="datetime", group_keys=False).apply(_norm_func)
-
-
 def load_predictions(train_records):
     """
     从 Qlib Recorder 加载所有模型的预测值，归一化后返回宽表。
-
-    Returns:
-        norm_df: DataFrame, index=(datetime, instrument), columns=model_names
-        model_metrics: dict, model_name -> ICIR
     """
-    from qlib.workflow import R
-
-    experiment_name = train_records["experiment_name"]
-    models = train_records["models"]
-
-    all_preds = []
-    model_metrics = {}
-
-    print(f"\n{'='*60}")
-    print("Stage 1: 加载模型预测数据")
-    print(f"{'='*60}")
-    print(f"Experiment: {experiment_name}")
-    print(f"Models ({len(models)}): {list(models.keys())}")
-
-    for model_name, record_id in models.items():
-        try:
-            recorder = R.get_recorder(
-                recorder_id=record_id, experiment_name=experiment_name
-            )
-
-            # 加载预测值
-            pred = recorder.load_object("pred.pkl")
-            if isinstance(pred, pd.Series):
-                pred = pred.to_frame("score")
-            pred.columns = [model_name]
-            all_preds.append(pred)
-
-            # 读取 ICIR 指标
-            raw_metrics = recorder.list_metrics()
-            metric_val = 0.0
-            for k, v in raw_metrics.items():
-                if "ICIR" in k:
-                    metric_val = v
-                    break
-            model_metrics[model_name] = metric_val
-
-            print(f"  [{model_name}] OK. Preds={len(pred)}, ICIR={metric_val:.4f}")
-        except Exception as e:
-            print(f"  [{model_name}] FAILED: {e}")
-
-    print(f"\n成功加载 {len(all_preds)}/{len(models)} 个模型")
-
-    if not all_preds:
-        raise ValueError("未加载到任何预测数据！")
-
-    # 合并 & Z-Score 归一化 (注意：不在这里 dropna，避免模型之间由于股票池差异互相削减样本)
-    merged_df = pd.concat(all_preds, axis=1)
-    print(f"合并后数据维度: {merged_df.shape}")
-
-    norm_df = pd.DataFrame(index=merged_df.index)
-    for col in merged_df.columns:
-        # 独立依靠单模型自身非空范围进行 Z-Score
-        norm_df[col] = zscore_norm(merged_df[col].dropna())
-
+    from quantpits.utils.predict_utils import load_predictions_from_recorder
+    norm_df, model_metrics, _ = load_predictions_from_recorder(train_records)
     return norm_df, model_metrics
 
 
@@ -356,31 +290,13 @@ def generate_grouped_combinations(groups, min_combo_size=1, max_combo_size=0):
 # Stage 3: 暴力穷举回测
 # ============================================================================
 
-def extract_report_df(metrics):
-    """从回测结果中提取 report DataFrame"""
-    if isinstance(metrics, dict):
-        val = list(metrics.values())[0]
-        return val[0] if isinstance(val, tuple) else val
-    elif isinstance(metrics, tuple):
-        first = metrics[0]
-        if isinstance(first, pd.DataFrame):
-            return first
-        elif isinstance(first, tuple) and len(first) >= 1:
-            return first[0]
-        return metrics
-    return metrics
-
-
 def run_single_backtest(
     combo_models, norm_df, top_k, drop_n, benchmark, freq,
     trade_exchange, bt_start, bt_end, st_config=None, bt_config=None
 ):
     """对指定的模型组合进行回测，返回指标字典或 None"""
-    from qlib.backtest import backtest_loop
-    from qlib.backtest.executor import SimulatorExecutor
-    from qlib.backtest.utils import CommonInfrastructure
-    from qlib.backtest.account import Account
     from quantpits.utils import strategy
+    from quantpits.utils.backtest_utils import run_backtest_with_strategy, standard_evaluate_portfolio
 
     if st_config is None:
         st_config = strategy.load_strategy_config()
@@ -390,76 +306,29 @@ def run_single_backtest(
     # 1. 合成信号 (等权均值，归一化后的) (仅在当前组合子集上求交集 dropna)
     combo_score = norm_df[list(combo_models)].dropna(how='any').mean(axis=1)
 
-    # 2. 准备组件
-    # 注意: Account 必须每次新建，不能复用 (状态会累积)
-    trade_account = Account(init_cash=bt_config["account"])
-    
-    # CommonInfrastructure 组合: 新 Account + 共享 Exchange
-    common_infra = CommonInfrastructure(
-        trade_account=trade_account,
-        trade_exchange=trade_exchange
-    )
-
     import copy
     st_config = copy.deepcopy(st_config)
     st_config["strategy"]["params"]["topk"] = top_k
     st_config["strategy"]["params"]["n_drop"] = drop_n
 
     strategy_inst = strategy.create_backtest_strategy(combo_score, st_config)
-    # 策略需要关联 infra
-    strategy_inst.reset_common_infra(common_infra)
 
-    executor_obj = SimulatorExecutor(
-        time_per_step=freq,
-        generate_portfolio_metrics=True,
-        verbose=False,
-        common_infra=common_infra,
-    )
-
-    # 3. 回测
+    # 2. 回测
     try:
-        with np.errstate(divide='ignore', invalid='ignore'), warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            # 使用 backtest_loop 直接运行，避免 backtest() 函数内部重建 Exchange
-            raw_portfolio_metrics, _ = backtest_loop(
-                start_time=bt_start,
-                end_time=bt_end,
-                trade_strategy=strategy_inst,
-                trade_executor=executor_obj,
-            )
+        report, _ = run_backtest_with_strategy(
+            strategy_inst=strategy_inst,
+            trade_exchange=trade_exchange,
+            freq=freq,
+            account_cash=bt_config["account"],
+            bt_start=bt_start,
+            bt_end=bt_end
+        )
 
-        # 4. Standardize for PortfolioAnalyzer
-        report = extract_report_df(raw_portfolio_metrics)
-        from quantpits.utils import strategy
+        # 3. 标准化计算结果
         st_config_inner = strategy.load_strategy_config()
         benchmark_col = st_config_inner.get('benchmark', 'SH000300')
         
-        # Prepare daily_amount_df (Standardize and convert returns to NAV before up-sampling)
-        da_df = pd.DataFrame(index=report.index)
-        da_df['收盘价值'] = report['account']
-        da_df[benchmark_col] = (1 + report['bench']).cumprod()
-        if not isinstance(da_df.index, pd.DatetimeIndex):
-            da_df.index = pd.to_datetime(da_df.index)
-        da_df.index.name = '成交日期'
-        
-        # Up-sample to daily frequency to ensure PortfolioAnalyzer's day-counting is correct
-        # Use Qlib calendar to get the exact trading day index (Consistent with ensemble_fusion)
-        from qlib.data import D
-        bt_start_dt = da_df.index.min()
-        bt_end_dt = da_df.index.max()
-        daily_dates = D.calendar(start_time=bt_start_dt, end_time=bt_end_dt, freq='day')
-        da_df = da_df.reindex(daily_dates, method='ffill').dropna(subset=['收盘价值'])
-        da_df = da_df.reset_index().rename(columns={'index': '成交日期', 'datetime': '成交日期'})
-        
-        from quantpits.scripts.analysis.portfolio_analyzer import PortfolioAnalyzer
-        pa = PortfolioAnalyzer(
-            daily_amount_df=da_df, 
-            trade_log_df=pd.DataFrame(), 
-            holding_log_df=pd.DataFrame(),
-            benchmark_col=benchmark_col, 
-            freq=freq
-        )
-        metrics = pa.calculate_traditional_metrics()
+        metrics = standard_evaluate_portfolio(report, benchmark_col, freq)
 
         return {
             "models": ",".join(combo_models),

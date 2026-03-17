@@ -140,51 +140,66 @@ def test_generate_signal_scores_constant(mock_env):
     assert len(res_df) == 2
     assert res_df["推荐指数"].iloc[0] == 0.0
 
-# ── find_prediction_file ─────────────────────────────────────────────────
-def test_find_prediction_file(mock_env):
+# ── get_prediction_from_recorder ─────────────────────────────────────────
+@patch('qlib.workflow.R.get_recorder')
+def test_get_prediction_from_recorder(mock_get_recorder, mock_env):
     sr, workspace = mock_env
-    pred_dir = workspace / "output" / "predictions"
+    config_file = workspace / "config" / "ensemble_records.json"
     
-    # Create some mock files
-    (pred_dir / "ensemble_2026-03-01.csv").write_text("1")
-    (pred_dir / "ensemble_2026-03-02.csv").write_text("2")
-    (pred_dir / "ensemble_combo_A_2026-03-01.csv").write_text("3")
+    cfg = {
+        "default_combo": "combo_A",
+        "combos": {
+            "combo_A": "rec123",
+            "combo_B": "rec456"
+        }
+    }
+    config_file.write_text(json.dumps(cfg))
     
-    # Generic latest
-    res = sr.find_prediction_file(combo_name=None, prediction_dir=str(pred_dir))
-    assert "ensemble_2026-03-02.csv" in res
+    # Mock recorder returns a dummy series
+    mock_rec = MagicMock()
+    mock_rec.load_object.return_value = pd.Series([1.0], name='score')
+    mock_get_recorder.return_value = mock_rec
+    
+    # Generic default
+    df, rid = sr.get_prediction_from_recorder(combo_name=None)
+    assert rid == "rec123"
+    assert "score" in df.columns
     
     # Specific combo
-    res = sr.find_prediction_file(combo_name="combo_A", prediction_dir=str(pred_dir))
-    assert "ensemble_combo_A_2026-03-01.csv" in res
+    df, rid = sr.get_prediction_from_recorder(combo_name="combo_B")
+    assert rid == "rec456"
 
-def test_find_prediction_file_not_found(mock_env):
+def test_get_prediction_from_recorder_not_found(mock_env):
     sr, workspace = mock_env
     
+    # No json file
     with pytest.raises(FileNotFoundError):
-        sr.find_prediction_file(combo_name="combo_X", prediction_dir=str(workspace / "output" / "predictions"))
+        sr.get_prediction_from_recorder(combo_name="combo_X")
         
+    # Create json but missing combo
+    config_file = workspace / "config" / "ensemble_records.json"
+    config_file.write_text(json.dumps({"combos": {"cA": "123"}}))
     with pytest.raises(FileNotFoundError):
-        sr.find_prediction_file(combo_name=None, prediction_dir=str(workspace / "output" / "predictions"))
+        sr.get_prediction_from_recorder(combo_name="combo_X")
 
 # ── main ─────────────────────────────────────────────────────────────────
-def test_main_default(mock_env, tmp_path):
+@patch('quantpits.scripts.signal_ranking.get_prediction_from_recorder')
+@patch('quantpits.scripts.signal_ranking.env.init_qlib')
+def test_main_default(mock_init_qlib, mock_get_pred, mock_env, tmp_path):
     sr, workspace = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    pred_file = pred_dir / "ensemble_2026-03-01.csv"
     
-    # Create mock prediction data
+    # Create mock prediction DataFrame
     df = pd.DataFrame({
         "score": [0.1, 0.9]
     }, index=pd.MultiIndex.from_tuples([
         ("000001", "2026-03-01"),
         ("000002", "2026-03-01")
     ], names=["instrument", "datetime"]))
-    df.to_csv(pred_file)
+    
+    mock_get_pred.return_value = (df, "mock_rid")
     
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--output-dir', str(workspace / "output" / "ranking"),
-                                    '--prediction-dir', str(pred_dir)]):
+    with patch.object(sys, 'argv', ['script.py', '--output-dir', str(workspace / "output" / "ranking")]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -193,26 +208,25 @@ def test_main_default(mock_env, tmp_path):
     files = list(ranking_dir.glob("Signal_default_2026-03-01_*.csv"))
     assert len(files) == 1
 
-def test_main_dry_run(mock_env, tmp_path):
+@patch('quantpits.scripts.signal_ranking.get_prediction_from_recorder')
+@patch('quantpits.scripts.signal_ranking.env.init_qlib')
+def test_main_dry_run(mock_init_qlib, mock_get_pred, mock_env, tmp_path):
     sr, workspace = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    pred_file = pred_dir / "ensemble_2026-03-01.csv"
     df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
-    df.to_csv(pred_file)
+    mock_get_pred.return_value = (df, "mock_rid")
     
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--output-dir', str(workspace / "output" / "ranking"),
-                                    '--prediction-dir', str(pred_dir)]):
+    with patch.object(sys, 'argv', ['script.py', '--dry-run', '--output-dir', str(workspace / "output" / "ranking")]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
-    # Even in dry-run, ranking_dir might be created by os.makedirs(args.output_dir, ...),
-    # but no files should be written.
+    # Even in dry-run, ranking_dir might be created by os.makedirs
     if ranking_dir.exists():
         files = list(ranking_dir.glob("*.csv"))
         assert len(files) == 0
 
-def test_main_prediction_file(mock_env, tmp_path):
+@patch('quantpits.scripts.signal_ranking.env.init_qlib')
+def test_main_prediction_file(mock_init_qlib, mock_env, tmp_path):
     sr, workspace = mock_env
     custom_file = tmp_path / "custom.csv"
     df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
@@ -226,36 +240,34 @@ def test_main_prediction_file(mock_env, tmp_path):
     files = list(ranking_dir.glob("Signal_custom_*.csv"))
     assert len(files) == 1
 
-def test_main_all_combos(mock_env, tmp_path):
+@patch('quantpits.scripts.signal_ranking.get_prediction_from_recorder')
+@patch('quantpits.scripts.signal_ranking.env.init_qlib')
+def test_main_all_combos(mock_init_qlib, mock_get_pred, mock_env, tmp_path):
     sr, workspace = mock_env
     config_file = workspace / "config" / "ensemble_config.json"
     cfg = {"combos": {"cA": {"models": ["m1"], "default": True}}}
     config_file.write_text(json.dumps(cfg))
     
-    pred_dir = workspace / "output" / "predictions"
-    pred_file = pred_dir / "ensemble_cA_2026-03-01.csv"
     df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-03-01")], names=["instrument", "datetime"]))
-    df.to_csv(pred_file)
+    mock_get_pred.return_value = (df, "rid_cA")
 
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking"),
-                                    '--prediction-dir', str(pred_dir)]):
+    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking")]):
         sr.main()
         
     ranking_dir = workspace / "output" / "ranking"
     files = list(ranking_dir.glob("Signal_cA_*.csv"))
     assert len(files) == 1
 
-def test_main_combo_arg(mock_env, tmp_path):
+@patch('quantpits.scripts.signal_ranking.get_prediction_from_recorder')
+@patch('quantpits.scripts.signal_ranking.env.init_qlib')
+def test_main_combo_arg(mock_init_qlib, mock_get_pred, mock_env, tmp_path):
     sr, workspace = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    pred_file = pred_dir / "ensemble_cB_2026-03-01.csv"
     df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
-    df.to_csv(pred_file)
+    mock_get_pred.return_value = (df, "rid_cB")
 
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--combo', 'cB', '--output-dir', str(workspace / "output" / "ranking"),
-                                    '--prediction-dir', str(pred_dir)]):
+    with patch.object(sys, 'argv', ['script.py', '--combo', 'cB', '--output-dir', str(workspace / "output" / "ranking")]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -274,7 +286,9 @@ def test_main_error_no_config_combos(mock_env, tmp_path):
             sr.main()
         assert e.value.code == 1
 
-def test_main_all_combos_partial_missing(mock_env, tmp_path):
+@patch('quantpits.scripts.signal_ranking.get_prediction_from_recorder')
+@patch('quantpits.scripts.signal_ranking.env.init_qlib')
+def test_main_all_combos_partial_missing(mock_init_qlib, mock_get_pred, mock_env, tmp_path):
     sr, workspace = mock_env
     config_file = workspace / "config" / "ensemble_config.json"
     cfg = {"combos": {
@@ -283,15 +297,19 @@ def test_main_all_combos_partial_missing(mock_env, tmp_path):
     }}
     config_file.write_text(json.dumps(cfg))
     
-    pred_dir = workspace / "output" / "predictions"
-    # Only cA has a file
-    pred_file = pred_dir / "ensemble_cA_2026-03-01.csv"
     df = pd.DataFrame({"score": [0.5]}, index=pd.MultiIndex.from_tuples([("A", "2026-01-01")], names=["instrument", "datetime"]))
-    df.to_csv(pred_file)
+    
+    # Mock to throw error for cB
+    def side_effect(combo_name=None):
+        if combo_name == "cA":
+            return (df, "rid_cA")
+        else:
+            raise FileNotFoundError("Mock Missing")
+            
+    mock_get_pred.side_effect = side_effect
 
     import sys
-    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking"),
-                                    '--prediction-dir', str(pred_dir)]):
+    with patch.object(sys, 'argv', ['script.py', '--all-combos', '--output-dir', str(workspace / "output" / "ranking")]):
         sr.main()
     
     ranking_dir = workspace / "output" / "ranking"
@@ -351,15 +369,7 @@ def test_generate_signal_scores_no_datetime_index(mock_env):
     assert latest_date is None
     assert len(res_df) == 2
 
-# ── find_prediction_file Fallback ─────────────────────────────────────────
-def test_find_prediction_file_fallback(mock_env, tmp_path):
-    sr, workspace = mock_env
-    pred_dir = workspace / "output" / "predictions"
-    # Create a file that NOT follows the YYYY-MM-DD pattern
-    (pred_dir / "ensemble_weird.csv").write_text("data")
-    
-    res = sr.find_prediction_file(combo_name=None, prediction_dir=str(pred_dir))
-    assert "ensemble_weird.csv" in res
+
 
 # ── get_default_combo Fallback ────────────────────────────────────────────
 def test_get_default_combo_fallback(mock_env):

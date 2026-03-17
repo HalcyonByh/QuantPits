@@ -23,8 +23,13 @@ def mock_env(monkeypatch, tmp_path):
     from quantpits.scripts import order_gen
     import importlib
     importlib.reload(env)
-    importlib.reload(order_gen)
     importlib.reload(strategy)
+    
+    # Needs to be set after reload to ensure module uses fake workspace ROOT_DIR
+    env.ROOT_DIR = str(workspace)
+    order_gen.ROOT_DIR = str(workspace)
+    order_gen.ENSEMBLE_CONFIG_FILE = os.path.join(env.ROOT_DIR, "config", "ensemble_fusion_config.json")
+    order_gen.CASHFLOW_FILE = os.path.join(env.ROOT_DIR, "config", "cashflow.json")
     
     yield order_gen, strategy, workspace
 
@@ -206,39 +211,43 @@ def test_get_anchor_date(mock_D, mock_env):
     res = order_gen.get_anchor_date()
     assert res == "2020-01-01"
 
-def test_load_predictions(mock_env):
+@patch('qlib.workflow.R')
+def test_load_predictions(mock_R, mock_env):
     order_gen, strategy, workspace = mock_env
     
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True, exist_ok=True)
+    config_dir = workspace / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
     
-    # 1. specify file
-    spec_file = pred_dir / "spec.csv"
-    pd.DataFrame({"score": [1.0]}).to_csv(spec_file)
-    df, desc = order_gen.load_predictions(prediction_file=str(spec_file))
-    assert len(df) == 1
-    assert "指定文件" in desc
+    mock_rec = MagicMock()
+    mock_df = pd.DataFrame({"score": [1.0]}).set_index(pd.Index(["A"], name="instrument"))
+    mock_rec.load_object.return_value = mock_df
+    mock_rec.list_metrics.return_value = {}
+    mock_rec.info = {"experiment_name": "ex", "id": "rec_id"}
+    mock_R.get_recorder.return_value = mock_rec
     
-    # 2. model name
-    model_file = pred_dir / "gru_2020.csv"
-    pd.DataFrame({"score": [1.0]}).to_csv(model_file)
+    # 1. model name using latest_train_records.json
+    train_file = workspace / "latest_train_records.json"
+    with open(train_file, "w") as f:
+        import json
+        json.dump({"models": {"gru": "rec_123"}, "experiment_name": "ex"}, f)
+        
     df, desc = order_gen.load_predictions(model_name="gru")
     assert "gru" in desc
+    assert len(df) == 1
     
-    # 3. ensemble default
-    ens_file = pred_dir / "ensemble_2020.csv"
-    pd.DataFrame({"score": [1.0]}).to_csv(ens_file)
-    
-    ens_dir = workspace / "output" / "ensemble"
-    ens_dir.mkdir(parents=True, exist_ok=True)
-    ens_cfg = ens_dir / "ensemble_fusion_config_2020.json"
-    import json
-    with open(ens_cfg, "w") as f:
-        json.dump({"weight_mode": "equal", "models_used": ["gru"]}, f)
+    # 2. ensemble default using ensemble_records.json
+    ens_file = config_dir / "ensemble_records.json"
+    with open(ens_file, "w") as f:
+        json.dump({
+            "combos": {
+                "test_combo": {"record_id": "rec_456", "models": ["gru"]}
+            }, 
+            "default_combo": "test_combo"
+        }, f)
         
     df, desc = order_gen.load_predictions()
-    assert "Ensemble 融合" in desc
-    assert "gru" in desc
+    assert "Ensemble 融合" in desc or "test_combo" in desc
+    assert len(df) == 1
 
 def test_load_pred_latest_day(mock_env):
     order_gen, strategy, workspace = mock_env
@@ -276,23 +285,42 @@ def test_get_price_data(mock_Feature, mock_D, mock_env):
     assert list(price_df.columns) == ['current_close', 'possible_max', 'possible_min']
     assert price_df.iloc[0]['current_close'] == 10.0
 
-def test_generate_model_opinions(mock_env, tmp_path):
+@patch('qlib.workflow.R')
+def test_generate_model_opinions(mock_R, mock_env, tmp_path):
     order_gen, strategy, workspace = mock_env
     
     focus_instruments = ["A", "B", "C"]
     holding_instruments = ["B"]
     sorted_df = pd.DataFrame({"score": [0.9, 0.8, 0.7]}, index=["A", "B", "C"])
     
-    # Setup dummy predictions to trigger multiple source paths
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"score": [0.9, 0.8, 0.7], "instrument": ["A", "B", "C"]}).to_csv(pred_dir / "ensemble_test_2020.csv", index=False)
-    pd.DataFrame({"score": [0.9, 0.8, 0.7], "instrument": ["A", "B", "C"]}).to_csv(pred_dir / "gru_2020.csv", index=False)
+    config_dir = workspace / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
     
     # Write dummy ensemble config
+    import json
     with open(order_gen.ENSEMBLE_CONFIG_FILE, "w") as f:
-        import json
-        json.dump({"combos": {"test": {"models": ["gru"]}}}, f)
+        json.dump({"combos": {"test_combo": {"models": ["gru"]}}}, f)
+        
+    ens_file = config_dir / "ensemble_records.json"
+    with open(ens_file, "w") as f:
+        json.dump({
+            "combos": {
+                "test_combo": {"record_id": "rec_ensemble", "models": ["gru"]}
+            }, 
+            "default_combo": "test_combo"
+        }, f)
+        
+    train_file = workspace / "latest_train_records.json"
+    with open(train_file, "w") as f:
+        json.dump({"models": {"gru": "rec_gru"}}, f)
+        
+    mock_rec = MagicMock()
+    mock_df = pd.DataFrame({"score": [0.9, 0.8, 0.7]}, index=["A", "B", "C"])
+    mock_df.index.name = "instrument"
+    mock_rec.load_object.return_value = mock_df
+    mock_rec.list_metrics.return_value = {}
+    mock_rec.info = {"experiment_name": "ex", "id": "rec_id"}
+    mock_R.get_recorder.return_value = mock_rec
     
     opinions_df, combo_info = order_gen.generate_model_opinions(
         focus_instruments, holding_instruments,
@@ -306,18 +334,26 @@ def test_generate_model_opinions(mock_env, tmp_path):
     assert list(opinions_df.loc["B"].values) == ["HOLD (2)", "HOLD (2)", "HOLD (2)"]
     assert list(opinions_df.loc["A"].values) == ["BUY (1)", "BUY (1)", "BUY (1)"]
 
-def test_generate_model_opinions_legacy_config(mock_env, tmp_path):
+@patch('qlib.workflow.R')
+def test_generate_model_opinions_legacy_config(mock_R, mock_env, tmp_path):
     order_gen, strategy, workspace = mock_env
     
     # 1. Legacy config (models in config, not combos)
+    import json
     with open(order_gen.ENSEMBLE_CONFIG_FILE, "w") as f:
-        import json
         json.dump({"models": ["gru"]}, f)
     
-    # Mock single model prediction
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"score": [0.9], "instrument": ["A"]}).to_csv(pred_dir / "gru_2020.csv", index=False)
+    train_file = workspace / "latest_train_records.json"
+    with open(train_file, "w") as f:
+        json.dump({"models": {"gru": "rec_gru"}}, f)
+        
+    mock_rec = MagicMock()
+    mock_df = pd.DataFrame({"score": [0.9]}, index=["A"])
+    mock_df.index.name = "instrument"
+    mock_rec.load_object.return_value = mock_df
+    mock_rec.list_metrics.return_value = {}
+    mock_rec.info = {"experiment_name": "ex", "id": "rec_id"}
+    mock_R.get_recorder.return_value = mock_rec
     
     sorted_df = pd.DataFrame({"score": [0.9], "current_close": [10.0]}, index=["A"])
     
@@ -326,25 +362,34 @@ def test_generate_model_opinions_legacy_config(mock_env, tmp_path):
         sorted_df=sorted_df, output_dir=str(tmp_path), next_trade_date_string="2020-01-01"
     )
     
-    # It should find model_gru, not combo_legacy (unless we had ensemble_legacy_*.csv)
     assert "model_gru" in opinions_df.columns
     assert list(combo_info.keys()) == ["legacy"]
 
-def test_generate_model_opinions_default_generic_loading(mock_env, tmp_path):
+@patch('qlib.workflow.R')
+def test_generate_model_opinions_default_generic_loading(mock_R, mock_env, tmp_path):
     order_gen, strategy, workspace = mock_env
     
-    # 2. Default combo loading generic ensemble_*.csv
-    with open(order_gen.ENSEMBLE_CONFIG_FILE, "w") as f:
-        import json
-        json.dump({"combos": {"test": {"models": ["gru"], "default": True}}}, f)
+    import json
+    # Mock ENSEMBLE_CONFIG_FILE content
+    ensemble_cfg = workspace / "config" / "ensemble_fusion_config.json"
+    with open(ensemble_cfg, "w") as f:
+        json.dump({"combos": {"test_combo": {"models": ["gru"]}}}, f)
     
-    pred_dir = workspace / "output" / "predictions"
-    pred_dir.mkdir(parents=True, exist_ok=True)
-    # Generic file name with date format 2020-01-01
-    pd.DataFrame({"score": [0.9], "instrument": ["A"]}).to_csv(pred_dir / "ensemble_2020-01-01.csv", index=False)
-    # Also mock the specific group file to ensure generic is NOT picked if specific exists? 
-    # Actually L345 says "if files: ... continue", so if ensemble_test_*.csv exists, it skips generic.
-    # To test generic, we must NOT have ensemble_test_*.csv
+    ens_file = workspace / "config" / "ensemble_records.json"
+    with open(ens_file, "w") as f:
+        json.dump({
+            "combos": {
+                "test_combo": {"record_id": "rec_ensemble", "models": ["gru"]}
+            }, 
+            "default_combo": "test_combo"
+        }, f)
+        
+    mock_rec = MagicMock()
+    mock_df = pd.DataFrame({"score": [0.9], "instrument": ["A"]}).set_index("instrument")
+    mock_rec.load_object.return_value = mock_df
+    mock_rec.list_metrics.return_value = {}
+    mock_rec.info = {"experiment_name": "ex", "id": "rec_id"}
+    mock_R.get_recorder.return_value = mock_rec
     
     sorted_df = pd.DataFrame({"score": [0.9], "current_close": [10.0]}, index=["A"])
     
@@ -353,9 +398,7 @@ def test_generate_model_opinions_default_generic_loading(mock_env, tmp_path):
         sorted_df=sorted_df, output_dir=str(tmp_path), next_trade_date_string="2020-01-01"
     )
     
-    assert "combo_test" in opinions_df.columns
-    # Check that it actually loaded the generic file
-    # (Since we didn't provide ensemble_test_*.csv, it should have hit L349-357)
+    assert "combo_test_combo" in opinions_df.columns
 
 @patch('qlib.workflow.R', create=True)
 def test_generate_model_opinions_from_qlib_recorder(mock_R, mock_env, tmp_path):
@@ -367,7 +410,7 @@ def test_generate_model_opinions_from_qlib_recorder(mock_R, mock_env, tmp_path):
         json.dump({"models": ["gru"]}, f)
     
     (workspace / "config").mkdir(exist_ok=True)
-    train_records_file = workspace / "config" / "latest_train_records.json"
+    train_records_file = workspace / "latest_train_records.json"
     with open(train_records_file, "w") as f:
         json.dump({"models": {"gru": "rec_id"}, "experiment_name": "exp"}, f)
     

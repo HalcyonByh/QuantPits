@@ -536,11 +536,7 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
             recorder = R.get_recorder()
             recorder.save_objects(**{"model.pkl": model})
             
-            # 保存预测结果
-            os.makedirs(PREDICTION_OUTPUT_DIR, exist_ok=True)
-            pred_file = os.path.join(PREDICTION_OUTPUT_DIR, f"{model_name}_{params['anchor_date']}.csv")
-            pred.to_csv(pred_file)
-            print(f"[{model_name}] Predictions saved to {pred_file}")
+
             
             # 生成 Signal Record
             record_cfgs = task_config['task'].get('record', [])

@@ -331,14 +331,7 @@ def train_window_model(model_name, yaml_file, window, params_base,
             recorder = R.get_recorder()
             recorder.save_objects(**{"model.pkl": model})
 
-            # 保存 per-window CSV
-            os.makedirs(ROLLING_PREDICTION_DIR, exist_ok=True)
-            pred_file = os.path.join(
-                ROLLING_PREDICTION_DIR,
-                f"{model_name}_w{widx}_{window['test_start']}_{window['test_end']}.csv"
-            )
-            pred.to_csv(pred_file)
-            print(f"[{model_name}|W{widx}] Per-window CSV: {pred_file}")
+
 
             # Signal Record
             record_cfgs = task_config['task'].get('record', [])
@@ -466,13 +459,6 @@ def concatenate_rolling_predictions(state, model_names, rolling_exp_name,
 
         combined_records[model_name] = combined_rid
 
-        # 保存拼接后的 CSV
-        csv_path = os.path.join(
-            ROLLING_PREDICTION_DIR,
-            f"{model_name}_{anchor_date}.csv"
-        )
-        combined_pred.to_csv(csv_path)
-        print(f"  [{model_name}] Combined CSV: {csv_path}")
         print(f"  [{model_name}] Combined Recorder: {combined_rid}")
 
     return combined_records
@@ -544,13 +530,7 @@ def predict_with_latest_model(model_name, model_info, state,
 
         pred = model.predict(dataset=dataset)
 
-        os.makedirs(ROLLING_PREDICTION_DIR, exist_ok=True)
-        pred_file = os.path.join(
-            ROLLING_PREDICTION_DIR,
-            f"{model_name}_predict_{anchor_date}.csv"
-        )
-        pred.to_csv(pred_file)
-        print(f"  [{model_name}] 预测完成: {pred_file}")
+        print(f"  [{model_name}] 预测完成: Recorder={latest['record_id']}")
 
         return pred
 

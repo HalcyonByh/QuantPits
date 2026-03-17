@@ -89,7 +89,7 @@ def test_get_default_combo():
     assert name2 == "combo1"
 
 def test_zscore_norm():
-    import quantpits.scripts.ensemble_fusion as ef
+    import quantpits.utils.predict_utils as pu
     
     dates = pd.to_datetime(["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"])
     instruments = ["A", "B", "A", "B"]
@@ -97,7 +97,7 @@ def test_zscore_norm():
     
     series = pd.Series([10.0, 20.0, 5.0, 5.0], index=idx)
     
-    norm = ef.zscore_norm(series)
+    norm = pu.zscore_norm(series)
     
     # 2020-01-01 -> mean=15, std=7.07
     # 2020-01-02 -> mean=5, std=0 (so it should return 0)
@@ -107,7 +107,7 @@ def test_zscore_norm():
     assert norm.loc[("2020-01-02", "A")] == 0.0
     assert norm.loc[("2020-01-02", "B")] == 0.0
 
-@patch('qlib.workflow.R')
+@patch('quantpits.utils.predict_utils.R')
 def test_load_selected_predictions(mock_R, mock_env):
     ef, workspace = mock_env
     
@@ -209,8 +209,8 @@ def test_generate_ensemble_signal():
 @patch('quantpits.utils.strategy.get_backtest_config')
 @patch('quantpits.utils.strategy.create_backtest_strategy')
 @patch('qlib.backtest.executor.SimulatorExecutor')
-@patch('qlib.backtest.backtest')
-def test_run_backtest(mock_bt, mock_executor, mock_create_strat, mock_get_bt_cfg, mock_load_st_cfg, mock_env):
+@patch('qlib.backtest.exchange.Exchange')
+def test_run_backtest(mock_exchange, mock_executor, mock_create_strat, mock_get_bt_cfg, mock_load_st_cfg, mock_env):
     ef, workspace = mock_env
     
     # Mock strategy dependencies
@@ -225,19 +225,56 @@ def test_run_backtest(mock_bt, mock_executor, mock_create_strat, mock_get_bt_cfg
     
     mock_report = pd.DataFrame({
         "account": [100000, 105000, 110000],
+        "nav": [100000, 105000, 110000],
         "return": [0.0, 0.05, 0.047],
         "bench": [1.0, 1.05, 1.08]
     }, index=dates)
     
-    mock_bt.return_value = (mock_report, None)
+    with patch('quantpits.utils.backtest_utils.run_backtest_with_strategy', side_effect=lambda *args, **kwargs: (mock_report, mock_executor.return_value)):
+        report_df, executor = ef.run_backtest(final_score, top_k=50, drop_n=0, benchmark="SH000300", freq="day")
     
-    report_df, executor = ef.run_backtest(final_score, top_k=50, drop_n=0, benchmark="SH000300", freq="day")
+    assert report_df is not None
+    assert executor is not None
+    assert len(report_df) == 3
+    assert "account" in report_df.columns
+    assert report_df.iloc[-1]["account"] == 110000
+
+@patch('quantpits.utils.strategy.load_strategy_config')
+@patch('quantpits.utils.strategy.get_backtest_config')
+@patch('quantpits.utils.strategy.create_backtest_strategy')
+@patch('qlib.backtest.executor.SimulatorExecutor')
+@patch('qlib.backtest.exchange.Exchange')
+def test_run_backtest_non_datetime_idx(mock_exchange, mock_executor, mock_create, mock_get_bt, mock_load_st, mock_env):
+    ef, workspace = mock_env
+    
+    # Mock strategy dependencies
+    mock_load_st.return_value = {}
+    mock_get_bt.return_value = {"account": 100000.0, "exchange_kwargs": {}}
+    mock_create.return_value = MagicMock()
+    mock_executor.return_value = MagicMock()
+    
+    # Create a final_score with a non-datetime index (e.g., string dates)
+    dates = ["2020-01-01", "2020-01-02", "2020-01-03"]
+    idx = pd.MultiIndex.from_product([dates, ["InstA"]], names=['datetime', 'instrument'])
+    final_score = pd.Series([1.0, 2.0, 3.0], index=idx)
+    
+    mock_report = pd.DataFrame({
+        "account": [100000, 105000, 110000],
+        "nav": [100000, 105000, 110000],
+        "return": [0.0, 0.05, 0.047],
+        "bench": [1.0, 1.05, 1.08]
+    }, index=pd.to_datetime(dates)) # Report index must be datetime
+    
+    with patch('quantpits.utils.backtest_utils.run_backtest_with_strategy', side_effect=lambda *args, **kwargs: (mock_report, mock_executor.return_value)):
+        report_df, executor = ef.run_backtest(final_score, top_k=50, drop_n=0, benchmark="SH000300", freq="day")
     
     assert report_df is not None
     assert executor is not None
     assert len(report_df) == 3
     assert "nav" in report_df.columns
     assert report_df.iloc[-1]["nav"] == 110000
+    # Ensure the index of the returned report_df is datetime
+    assert pd.api.types.is_datetime64_any_dtype(report_df.index)
 
 def test_save_predictions(mock_env, tmp_path):
     ef, workspace = mock_env
@@ -254,21 +291,21 @@ def test_save_predictions(mock_env, tmp_path):
     out_dir.mkdir(parents=True, exist_ok=True)
     
     with patch('quantpits.scripts.ensemble_fusion.os.makedirs') as mock_makedir:
-        pred_file = ef.save_predictions(
-            final_score, 
-            "2020-01-01", 
-            "exp1", 
-            "equal", 
-            ["M1", "M2"], 
-            {"M1": 0.5, "M2": 0.6}, 
-            {"M1": 0.5, "M2": 0.5}, 
-            False, 
-            str(out_dir)
-        )
-    
-    assert "ensemble_2020-01-01.csv" in pred_file
+        with patch('quantpits.utils.predict_utils.save_predictions_to_recorder', return_value="rec_123"):
+            pred_file = ef.save_predictions(
+                final_score, 
+                "2020-01-01", 
+                "exp1", 
+                "equal", 
+                ["M1", "M2"], 
+                {"M1": 0.5, "M2": 0.6}, 
+                {"M1": 0.5, "M2": 0.5}, 
+                False, 
+                str(out_dir)
+            )
+            
+    assert pred_file == "rec_123"
     assert mock_makedir.called
-    assert mock_df.to_csv.called
     
     config_file = out_dir / "ensemble_fusion_config_2020-01-01.json"
     assert config_file.exists()
@@ -348,14 +385,20 @@ def test_calculate_weights_dynamic(mock_D):
     assert static is None
     assert final.shape == (65, 2)
 
+def test_extract_report_df_default():
+    import quantpits.utils.predict_utils as pu
+    metrics = {"port": (pd.DataFrame({"nav": [1, 2]}), {})}
+    df = pu.extract_report_df(metrics)
+    assert len(df) == 2
+
 def test_extract_report_df():
-    import quantpits.scripts.ensemble_fusion as ef
+    import quantpits.utils.predict_utils as pu
     df = pd.DataFrame({'a': [1]})
     
-    assert ef.extract_report_df({'m': df}).equals(df)
-    assert ef.extract_report_df((df, 'other')).equals(df)
-    assert ef.extract_report_df(((df, 'x'), 'y')).equals(df)
-    assert ef.extract_report_df(df).equals(df)
+    assert pu.extract_report_df({'m': df}).equals(df)
+    assert pu.extract_report_df((df, 'other')).equals(df)
+    assert pu.extract_report_df(((df, 'x'), 'y')).equals(df)
+    assert pu.extract_report_df(df).equals(df)
 
 @patch('qlib.contrib.evaluate.risk_analysis')
 def test_calculate_safe_risk(mock_risk):
@@ -748,14 +791,14 @@ def test_save_predictions_combo_and_default(mock_env, tmp_path):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     
-    ef.save_predictions(
-        final_score, "2020-01-01", "exp1", "equal", ["M1"], 
-        {"M1": 0.5}, {"M1": 1.0}, False, str(out_dir), 
-        combo_name="my_combo", is_default=True
-    )
+    with patch('quantpits.utils.predict_utils.save_predictions_to_recorder', return_value="rec_123"):
+        pred_file = ef.save_predictions(
+            final_score, "2020-01-01", "exp1", "equal", ["M1"], 
+            {"M1": 0.5}, {"M1": 1.0}, False, str(out_dir), 
+            combo_name="my_combo", is_default=True
+        )
     
-    assert os.path.exists("output/predictions/ensemble_my_combo_2020-01-01.csv")
-    assert os.path.exists("output/predictions/ensemble_2020-01-01.csv")
+    assert pred_file == "rec_123"
     
     with open(out_dir / "ensemble_fusion_config_my_combo_2020-01-01.json") as f:
         cfg = json.load(f)
@@ -764,17 +807,19 @@ def test_save_predictions_combo_and_default(mock_env, tmp_path):
 # --- Stage 6: Backtest & Analysis ---
 
 def test_extract_report_df_default(mock_env):
+    import quantpits.utils.predict_utils as pu
     ef, _ = mock_env
     # Line 561: default return
-    assert ef.extract_report_df(None) is None
-    assert ef.extract_report_df("string") == "string"
+    assert pu.extract_report_df(None) is None
+    assert pu.extract_report_df("string") == "string"
 
 @patch('qlib.backtest.backtest')
 @patch('qlib.backtest.executor.SimulatorExecutor')
 @patch('quantpits.utils.strategy.create_backtest_strategy')
 @patch('quantpits.utils.strategy.load_strategy_config')
 @patch('quantpits.utils.strategy.get_backtest_config')
-def test_run_backtest_non_datetime_idx(mock_get_bt, mock_load_st, mock_strat, mock_exec, mock_bt, mock_env):
+@patch('qlib.backtest.exchange.Exchange')
+def test_run_backtest_non_datetime_idx(mock_exchange, mock_get_bt, mock_load_st, mock_strat, mock_exec, mock_bt, mock_env):
     ef, _ = mock_env
     # Line 616: non datetime index
     dates = ["2020-01-01", "2020-01-02"]
@@ -783,6 +828,7 @@ def test_run_backtest_non_datetime_idx(mock_get_bt, mock_load_st, mock_strat, mo
     
     report_df = pd.DataFrame({
         "account": [100.0, 101.0],
+        "nav": [100.0, 101.0],
         "bench": [0.0, 0.01]
     }, index=dates)
     
@@ -797,7 +843,8 @@ def test_run_backtest_non_datetime_idx(mock_get_bt, mock_load_st, mock_strat, mo
             mock_pa.return_value = pa_inst
             
             with patch('builtins.print') as mock_p:
-                ef.run_backtest(final_score, 1, 0, "SH000300", "day")
+                with patch('quantpits.utils.backtest_utils.run_backtest_with_strategy', side_effect=lambda *args, **kwargs: (report_df, mock_exec.return_value)):
+                    ef.run_backtest(final_score, 1, 0, "SH000300", "day")
                 assert any("Calmar Ratio" in str(c) for c in mock_p.call_args_list)
 
 def test_run_detailed_backtest_analysis_metrics_calc(mock_env, tmp_path):

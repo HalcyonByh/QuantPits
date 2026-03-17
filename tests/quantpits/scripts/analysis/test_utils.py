@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 import json
-from unittest.mock import patch, MagicMock
+import qlib.workflow
+from unittest.mock import patch, MagicMock, mock_open
 
 from quantpits.scripts.analysis import utils as ut
 
@@ -130,56 +131,31 @@ def test_load_csvs(tmp_path):
 
 # ── load_model_predictions ───────────────────────────────────────────────
 
-def test_load_model_predictions(tmp_path):
-    pred_dir = tmp_path / "output" / "predictions"
-    pred_dir.mkdir(parents=True)
+@patch('builtins.open', new_callable=mock_open, read_data='{"models": {"modelA": "fake_record_id"}, "experiment_name": "fake_exp"}')
+@patch('quantpits.scripts.analysis.utils.os.path.exists')
+def test_load_model_predictions(mock_exists, mock_file, tmp_path):
+    # Ensure our mocked path returns True
+    mock_exists.return_value = True
     
-    # 1. First file with '0' as score column, missing datetime in cols (index instead)
-    # We write a normal CSV, then we'll pretend index parsing behavior when loaded?
-    # Actually utils.py loads normal CSV, so datetime will become a column.
     df1 = pd.DataFrame({
-        "datetime": ["2026-01-01", "2026-01-02"],
+        "datetime": pd.to_datetime(["2026-01-01", "2026-01-02"]),
         "instrument": ["SZ000001", "SZ000001"],
         "0": [0.5, 0.6]
-    })
-    df1.to_csv(pred_dir / "modelA_2026-01-02.csv", index=False)
+    }).set_index(["datetime", "instrument"])
     
-    # 2. Second file with 'score' as column
-    df2 = pd.DataFrame({
-        "datetime": ["2026-01-02", "2026-01-03"],
-        "instrument": ["SZ000001", "SZ000001"],
-        "score": [0.65, 0.7]
-    })
-    df2.to_csv(pred_dir / "modelA_2026-01-03.csv", index=False)
-    
-    # 3. Third file for a different model entirely
-    df3 = pd.DataFrame({
-        "datetime": ["2026-01-03"],
-        "instrument": ["SZ000001"],
-        "score": [0.9]
-    })
-    df3.to_csv(pred_dir / "modelB_2026-01-03.csv", index=False)
-    
-    with patch('quantpits.scripts.analysis.utils.PREDICTION_DIR', str(pred_dir)):
-        # Test basic loading and duplicate dropping (2026-01-02 is in both, last one kept)
+    with patch('qlib.workflow.R') as mock_R:
+        mock_rec = MagicMock()
+        mock_rec.load_object.return_value = df1
+        mock_R.get_recorder.return_value = mock_rec
+        
         df_a = ut.load_model_predictions("modelA")
         assert not df_a.empty
-        assert len(df_a) == 3 # 01, 02, 03
-        
-        # Ensure '0' was renamed to 'score'
         assert 'score' in df_a.columns
+        assert len(df_a) == 2
         
-        # Ensure 01-02 took the latest value (0.65)
-        # Because the index is a MultiIndex [datetime, instrument].
-        # We need to test the value for ('2026-01-02', 'SZ000001')
-        val = df_a.loc[(pd.Timestamp("2026-01-02"), "SZ000001"), "score"]
-        if isinstance(val, pd.Series):
-            val = val.iloc[-1]
-        assert np.isclose(float(val), 0.65)
-        
-        # Test date filtering
-        df_a_filtered = ut.load_model_predictions("modelA", start_date="2026-01-02", end_date="2026-01-02")
-        assert len(df_a_filtered) == 1
+        df_filtered = ut.load_model_predictions("modelA", start_date="2026-01-02", end_date="2026-01-02")
+        assert len(df_filtered) == 1
         
         # Test missing model
+        mock_file.return_value.read.return_value = '{}'
         assert ut.load_model_predictions("modelC").empty

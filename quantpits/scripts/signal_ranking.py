@@ -148,59 +148,35 @@ def generate_signal_scores(pred_df, top_n=300):
     return output_df, latest_date
 
 
-def find_prediction_file(combo_name=None, anchor_date=None, prediction_dir=None):
+def get_prediction_from_recorder(combo_name=None):
     """
-    查找预测文件。
-
-    Args:
-        combo_name: combo 名称，None 表示查找 default ensemble
-        anchor_date: 日期限制
-        prediction_dir: 预测文件搜索目录 (默认 PREDICTION_DIR)
-
-    Returns:
-        pred_file: 文件路径
+    从 Qlib Recorder 获取预测数据。
     """
-    _pred_dir = prediction_dir or PREDICTION_DIR
-    if combo_name:
-        pattern = os.path.join(_pred_dir, f"ensemble_{combo_name}_*.csv")
-    else:
-        # 查找不带 combo name 的通用 ensemble 文件
-        pattern = os.path.join(_pred_dir, "ensemble_*.csv")
-
-    files = sorted(glob.glob(pattern))
-
-    if combo_name:
-        # 精确匹配带 combo_name 的文件
-        if not files:
-            raise FileNotFoundError(
-                f"未找到 combo '{combo_name}' 的预测文件。\n"
-                f"搜索路径: {pattern}\n"
-                "请先运行 ensemble_fusion.py"
-            )
-        return files[-1]
-    else:
-        # 过滤掉带 combo_name 的文件（它们包含两个 _ 分隔的部分在 ensemble_ 之后）
-        # ensemble_2026-02-13.csv vs ensemble_combo_A_2026-02-13.csv
-        generic_files = []
-        for f in files:
-            basename = os.path.basename(f)
-            # 移除 "ensemble_" 前缀和 ".csv" 后缀，检查剩余部分是否像日期
-            rest = basename[len("ensemble_"):-len(".csv")]
-            # 如果剩余部分看起来像一个日期 (YYYY-MM-DD)，则是通用文件
-            if len(rest) == 10 and rest[4] == '-' and rest[7] == '-':
-                generic_files.append(f)
-
-        if not generic_files:
-            # 退化：直接使用最新的任何 ensemble 文件
-            if files:
-                return files[-1]
-            raise FileNotFoundError(
-                "未找到 ensemble 预测文件。\n"
-                f"搜索路径: {pattern}\n"
-                "请先运行 ensemble_fusion.py"
-            )
-        return generic_files[-1]
-
+    from qlib.workflow import R
+    ensemble_records_file = os.path.join(ROOT_DIR, "config", "ensemble_records.json")
+    if not os.path.exists(ensemble_records_file):
+        raise FileNotFoundError("未找到 ensemble_records.json，请先运行 ensemble_fusion.py")
+        
+    with open(ensemble_records_file, 'r') as f:
+        records = json.load(f)
+        
+    combos = records.get("combos", {})
+    if not combo_name:
+        combo_name = records.get("default_combo")
+        if not combo_name:
+             if not combos:
+                 raise ValueError("ensemble_records.json 中没有有效的融合记录")
+             combo_name = list(combos.keys())[-1]
+             
+    record_id = combos.get(combo_name) or combos.get(f"ensemble_{combo_name}") or combos.get(combo_name.replace("combo_", ""))
+    if not record_id:
+         raise FileNotFoundError(f"未找到 combo '{combo_name}' 的记录 ID")
+         
+    recorder = R.get_recorder(recorder_id=record_id, experiment_name="Ensemble_Fusion")
+    pred_df = recorder.load_object("pred.pkl")
+    if isinstance(pred_df, pd.Series):
+         pred_df = pred_df.to_frame('score')
+    return pred_df, record_id
 
 # ============================================================================
 # Main
@@ -249,56 +225,55 @@ def main():
         print("\n⚠️  DRY-RUN 模式: 不会写入任何文件")
 
     os.makedirs(args.output_dir, exist_ok=True)
+    env.init_qlib()
 
     # ---- 确定要处理的任务列表 ----
-    # 每个任务: (label, pred_file)
+    # 每个任务: (label, pred_df, source_desc)
     tasks = []
 
     if args.prediction_file:
         if not os.path.exists(args.prediction_file):
             print(f"Error: 指定的预测文件不存在: {args.prediction_file}")
             sys.exit(1)
-        tasks.append(('custom', args.prediction_file))
-
-    elif args.all_combos:
-        combos = parse_ensemble_config()
-        if not combos:
-            print("Error: ensemble_config.json 中没有 combos")
-            sys.exit(1)
-        for name, cfg in combos.items():
-            try:
-                pred_file = find_prediction_file(combo_name=name,
-                                                 prediction_dir=args.prediction_dir)
-                tasks.append((name, pred_file))
-            except FileNotFoundError as e:
-                print(f"Warning: {e}")
-
-        if not tasks:
-            print("Error: 没有找到任何 combo 的预测文件")
-            sys.exit(1)
-        print(f"\n多组合模式: 共 {len(tasks)} 个 combo")
-
-    elif args.combo:
-        pred_file = find_prediction_file(combo_name=args.combo,
-                                         prediction_dir=args.prediction_dir)
-        tasks.append((args.combo, pred_file))
+        pred_df = pd.read_csv(args.prediction_file, index_col=[0, 1], parse_dates=[1])
+        tasks.append(('custom', pred_df, args.prediction_file))
 
     else:
-        # Default: 使用最新 ensemble 预测
-        pred_file = find_prediction_file(prediction_dir=args.prediction_dir)
-        tasks.append(('default', pred_file))
+        if args.all_combos:
+            combos = parse_ensemble_config()
+            if not combos:
+                print("Error: ensemble_config.json 中没有 combos")
+                sys.exit(1)
+            for name, cfg in combos.items():
+                try:
+                    pred_df, rid = get_prediction_from_recorder(combo_name=name)
+                    tasks.append((name, pred_df, f"recorder {rid}"))
+                except FileNotFoundError as e:
+                    print(f"Warning: {e}")
+
+            if not tasks:
+                print("Error: 没有找到任何 combo 的预测记录")
+                sys.exit(1)
+            print(f"\n多组合模式: 共 {len(tasks)} 个 combo")
+
+        elif args.combo:
+            pred_df, rid = get_prediction_from_recorder(combo_name=args.combo)
+            tasks.append((args.combo, pred_df, f"recorder {rid}"))
+
+        else:
+            # Default: 使用最新 ensemble 预测
+            pred_df, rid = get_prediction_from_recorder()
+            tasks.append(('default', pred_df, f"recorder {rid}"))
 
     # ---- 逐任务处理 ----
     generated_files = []
 
-    for label, pred_file in tasks:
+    for label, pred_df, source_desc in tasks:
         print(f"\n{'='*60}")
         print(f"处理: {label}")
-        print(f"预测文件: {pred_file}")
+        print(f"来源: {source_desc}")
         print(f"{'='*60}")
 
-        # 加载预测
-        pred_df = pd.read_csv(pred_file, index_col=[0, 1], parse_dates=[1])
         print(f"预测数据量: {len(pred_df)} 条")
 
         # 生成信号评分
@@ -330,8 +305,8 @@ def main():
     print("# ✅ Signal Ranking 完成!")
     print(f"{'#'*60}")
     print(f"处理了 {len(tasks)} 个预测源")
-    for label, pred_file in tasks:
-        print(f"  {label}: {os.path.basename(pred_file)}")
+    for label, _, source_desc in tasks:
+        print(f"  {label}: {source_desc}")
     if generated_files:
         print(f"\n生成的文件:")
         for f in generated_files:
