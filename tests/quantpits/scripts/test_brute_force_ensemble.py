@@ -274,7 +274,7 @@ def test_split_is_oos_with_dates(mock_env):
 # ── load_predictions ─────────────────────────────────────────────────────
 from unittest.mock import patch
 
-@patch('quantpits.utils.predict_utils.R')
+@patch('qlib.workflow.R')
 def test_load_predictions(mock_R, mock_env):
     bfe, _ = mock_env
 

@@ -3,9 +3,6 @@ import json
 import logging
 import pandas as pd
 from typing import List, Dict, Tuple, Optional, Any
-
-from qlib.workflow import R
-
 def zscore_norm(series: pd.Series) -> pd.Series:
     """按天 Z-Score 归一化 (减均值，除标准差)"""
     def _norm_func(x):
@@ -31,6 +28,7 @@ def load_predictions_from_recorder(
         model_metrics: dict, model_name -> ICIR
         loaded_models: 成功加载的模型列表
     """
+    from qlib.workflow import R
     experiment_name = train_records.get("experiment_name")
     models = train_records.get("models", {})
 
@@ -108,6 +106,7 @@ def save_predictions_to_recorder(
     tags.setdefault("model", model_name)
     tags.setdefault("mode", "fused_prediction")
     
+    from qlib.workflow import R
     with R.start(experiment_name=experiment_name):
         R.set_tags(**tags)
         # 必须确保格式兼容原有读取接口（通常要求包含 score 字段或序列）

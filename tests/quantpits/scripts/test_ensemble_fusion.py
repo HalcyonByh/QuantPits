@@ -107,7 +107,7 @@ def test_zscore_norm():
     assert norm.loc[("2020-01-02", "A")] == 0.0
     assert norm.loc[("2020-01-02", "B")] == 0.0
 
-@patch('quantpits.utils.predict_utils.R')
+@patch('qlib.workflow.R')
 def test_load_selected_predictions(mock_R, mock_env):
     ef, workspace = mock_env
     

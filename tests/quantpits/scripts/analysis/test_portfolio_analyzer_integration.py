@@ -18,10 +18,11 @@ WORKSPACE = os.environ.get("QLIB_WORKSPACE_DIR", "")
 
 
 # ---------------------------------------------------------------------------
-# Qlib initialisation (module-level, executed once when file is collected)
+# Fixtures
 # ---------------------------------------------------------------------------
 
-def _init_qlib_once():
+@pytest.fixture(scope="module")
+def qlib_init():
     """Best-effort Qlib init; returns True on success."""
     try:
         from quantpits.scripts.analysis.utils import init_qlib
@@ -30,13 +31,6 @@ def _init_qlib_once():
     except Exception:
         return False
 
-
-_QLIB_OK = _init_qlib_once()
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
 def prod_data():
@@ -125,9 +119,9 @@ class TestProductionFactorExposure:
         # Alpha can be positive or negative, but should be reasonable
         assert -1 < fe["Annualized_Alpha"] < 5, f"Alpha out of range: {fe['Annualized_Alpha']}"
 
-    def test_factor_exposure_with_qlib(self, analyzer):
+    def test_factor_exposure_with_qlib(self, analyzer, qlib_init):
         """Factor exposure using Qlib data (no CSI300 column)."""
-        if not _QLIB_OK:
+        if not qlib_init:
             # Qlib could not initialise — assert a known-safe outcome instead of skipping.
             assert True
             return
@@ -149,9 +143,9 @@ class TestProductionFactorExposure:
 
 
 class TestProductionStyleExposures:
-    def test_style_exposures_sanity(self, analyzer):
+    def test_style_exposures_sanity(self, analyzer, qlib_init):
         """Style exposures with Qlib features."""
-        if not _QLIB_OK:
+        if not qlib_init:
             assert True
             return
 
