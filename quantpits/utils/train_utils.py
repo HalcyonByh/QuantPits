@@ -531,7 +531,7 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
             print(f"[{model_name}] Predicting...")
             pred = model.predict(dataset=dataset)
             
-            # 保存模型对象（供 prod_predict_only.py 加载）
+            # 保存模型对象（供 static_train.py --predict-only 加载）
             print(f"[{model_name}] Saving model to recorder...")
             recorder = R.get_recorder()
             recorder.save_objects(**{"model.pkl": model})
@@ -691,7 +691,7 @@ def merge_train_records(new_records, record_file=None):
 
 def overwrite_train_records(records, record_file=None):
     """
-    全量覆写训练记录（用于 prod_train_predict.py 全量刷新模式）
+    全量覆写训练记录（用于 static_train.py --full 全量刷新模式）
     覆写前自动备份。
     
     Args:
