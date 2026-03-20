@@ -1445,6 +1445,14 @@ def main():
                     "Calmar": "{:.2f}".format,
                 }
                 print(oos_df[display_cols].to_string(formatters=fmt))
+                
+                # 追加到分析报告中
+                oos_report_str = "\n" + "="*60 + "\n⚡ 快速 OOS 验证结果:\n" + "="*60 + "\n"
+                oos_report_str += oos_df[display_cols].to_string(formatters=fmt) + "\n"
+                report_path = os.path.join(args.output_dir, f"analysis_report_fast_{anchor_date}.txt")
+                if os.path.exists(report_path):
+                    with open(report_path, "a", encoding="utf-8") as f:
+                        f.write(oos_report_str)
 
     print(f"\n{'='*60}")
     print(f"全部完成！ 耗时结束于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
