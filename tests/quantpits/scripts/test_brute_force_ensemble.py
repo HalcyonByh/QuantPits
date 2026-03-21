@@ -312,136 +312,15 @@ def test_load_predictions_failure(mock_R, mock_env):
     with pytest.raises(ValueError, match="未加载到任何预测数据"):
         bfe.load_predictions(train_records)
 
-# ── analyze_results ──────────────────────────────────────────────────────
-def test_analyze_results_empty(mock_env, tmp_path):
-    bfe, _ = mock_env
-    os.makedirs(tmp_path / "output", exist_ok=True)
-    # Empty results_df should return early
-    bfe.analyze_results(
-        results_df=pd.DataFrame(),
-        corr_matrix=pd.DataFrame(),
-        norm_df=pd.DataFrame(),
-        train_records={"experiment_name": "exp", "models": {}},
-        output_dir=str(tmp_path / "output"),
-        anchor_date="2020-01-01",
-    )
-
-@patch('qlib.workflow.R', create=True)
-def test_analyze_results_basic(mock_R, mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = str(tmp_path / "output")
-    os.makedirs(out_dir, exist_ok=True)
-
-    results_df = pd.DataFrame({
-        "models": ["m1", "m2", "m1,m2"],
-        "n_models": [1, 1, 2],
-        "Ann_Ret": [0.15, 0.12, 0.18],
-        "Max_DD": [-0.05, -0.08, -0.04],
-        "Excess_Ret": [0.10, 0.07, 0.13],
-        "Ann_Excess": [0.10, 0.07, 0.13],
-        "Total_Ret": [0.15, 0.12, 0.18],
-        "Final_NAV": [115000, 112000, 118000],
-        "Calmar": [3.0, 1.5, 4.5],
-    })
-
-    corr_matrix = pd.DataFrame(
-        [[1.0, 0.5], [0.5, 1.0]], index=["m1", "m2"], columns=["m1", "m2"]
-    )
-
-    dates = pd.to_datetime(["2020-01-01"] * 2)
-    idx = pd.MultiIndex.from_arrays([dates, ["A", "B"]], names=["datetime", "instrument"])
-    norm_df = pd.DataFrame({"m1": [1.0, 2.0], "m2": [1.5, 2.5]}, index=idx)
-
-    mock_recorder = MagicMock()
-    mock_report = pd.DataFrame({
-        "return": [0.01, 0.02],
-        "bench": [0.005, 0.005]
-    }, index=dates)
-    mock_recorder.load_object.return_value = mock_report
-    mock_R.get_recorder.return_value = mock_recorder
-
-    with patch('matplotlib.pyplot.savefig'):
-        bfe.analyze_results(
-            results_df=results_df,
-            corr_matrix=corr_matrix,
-            norm_df=norm_df,
-            train_records={"experiment_name": "exp", "models": {"m1": "r1", "m2": "r2"}},
-            output_dir=out_dir,
-            anchor_date="2020-01-01",
-            top_n=2
-        )
-
-    assert os.path.exists(os.path.join(out_dir, "analysis_report_2020-01-01.txt"))
-    assert os.path.exists(os.path.join(out_dir, "model_attribution_2020-01-01.csv"))
-
-@patch('qlib.workflow.R', create=True)
-def test_analyze_results_fallback(mock_R, mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = str(tmp_path / "output")
-    os.makedirs(out_dir, exist_ok=True)
-
-    # Less than 2 models (should skip clustering and optimization plots without crashing)
-    results_df = pd.DataFrame({
-        "models": ["m1"],
-        "n_models": [1],
-        "Ann_Ret": [0.15],
-        "Max_DD": [-0.05],
-        "Excess_Ret": [0.10],
-        "Ann_Excess": [0.10],
-        "Total_Ret": [0.15],
-        "Final_NAV": [115000],
-        "Calmar": [3.0],
-    })
-
-    corr_matrix = pd.DataFrame([[1.0]], index=["m1"], columns=["m1"])
-
-    dates = pd.to_datetime(["2020-01-01"] * 2)
-    idx = pd.MultiIndex.from_arrays([dates, ["A", "B"]], names=["datetime", "instrument"])
-    norm_df = pd.DataFrame({"m1": [1.0, 2.0]}, index=idx)
-
-    mock_recorder = MagicMock()
-    mock_report = pd.DataFrame({
-        "return": [0.01, 0.02],
-        "bench": [0.005, 0.005]
-    }, index=dates)
-    mock_recorder.load_object.return_value = mock_report
-    mock_R.get_recorder.return_value = mock_recorder
-
-    with patch('matplotlib.pyplot.savefig'):
-        bfe.analyze_results(
-            results_df=results_df,
-            corr_matrix=corr_matrix,
-            norm_df=norm_df,
-            train_records={"experiment_name": "exp", "models": {"m1": "r1"}},
-            output_dir=out_dir,
-            anchor_date="2020-01-01",
-            top_n=2
-        )
-
-    # Assure it succeeds and writes the report
-    assert os.path.exists(os.path.join(out_dir, "analysis_report_2020-01-01.txt"))
-
 # ── parse_args ───────────────────────────────────────────────────────────
 def test_parse_args(mock_env):
     import sys
     bfe, _ = mock_env
 
     with patch.object(sys, 'argv', [
-        'bfe.py', '--max-combo-size', '3', '--analysis-only', '--resume',
-        '--freq', 'week', '--top-n', '10'
+        'bfe.py', '--max-combo-size', '3', '--resume', '--freq', 'week'
     ]):
-        args = bfe.main.__code__  # Just verify parse_args is callable
-    # Use the module-level argparse directly
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--max-combo-size', type=int, default=0)
-    parser.add_argument('--analysis-only', action='store_true')
-    with patch.object(sys, 'argv', ['bfe.py', '--max-combo-size', '3', '--analysis-only']):
-        args = parser.parse_args()
-    assert args.max_combo_size == 3
-    assert args.analysis_only is True
-
-from unittest.mock import patch, MagicMock
+        pass
 
 @patch('qlib.backtest.backtest_loop')
 @patch('qlib.backtest.account.Account')
@@ -645,9 +524,8 @@ def test_brute_force_backtest_shutdown_signal(mock_run_bt, mock_exchange, mock_e
 @patch('quantpits.scripts.brute_force_ensemble.load_predictions')
 @patch('quantpits.scripts.brute_force_ensemble.correlation_analysis')
 @patch('quantpits.scripts.brute_force_ensemble.brute_force_backtest')
-@patch('quantpits.scripts.brute_force_ensemble.analyze_results')
 @patch('quantpits.utils.env.safeguard')
-def test_main_full(mock_safeguard, mock_analyze, mock_bf, mock_corr, mock_load_pred, mock_load_cfg, mock_init, mock_env, tmp_path):
+def test_main_full(mock_safeguard, mock_bf, mock_corr, mock_load_pred, mock_load_cfg, mock_init, mock_env, tmp_path):
     bfe, _ = mock_env
     
     mock_load_cfg.return_value = ({"models": {"m1": "r1"}, "anchor_date": "2020-01-01"}, {"TopK": 1})
@@ -668,32 +546,6 @@ def test_main_full(mock_safeguard, mock_analyze, mock_bf, mock_corr, mock_load_p
         bfe.main()
     
     mock_bf.assert_called_once()
-    mock_analyze.assert_called_once()
-
-    # Test --analysis-only
-    mock_bf.reset_mock()
-    mock_analyze.reset_mock()
-    # Mock existence of the result CSV to pass analysis
-    pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1]}).to_csv(
-        os.path.join(out_dir, "brute_force_results_2020-01-01.csv"), index=False
-    )
-    with patch.object(sys, 'argv', ['script.py', '--output-dir', out_dir, '--analysis-only']):
-        bfe.main()
-    mock_bf.assert_not_called()
-    mock_analyze.assert_called_once()
-
-    # Test --use-groups and OOS metrics via dates + resume
-    mock_bf.reset_mock()
-    mock_analyze.reset_mock()
-    with patch.object(sys, 'argv', [
-        'script.py', '--output-dir', out_dir, '--use-groups', 
-        '--start-date', '2019-01-01', '--end-date', '2020-01-01',
-        '--resume', '--n-jobs', '2', '--batch-size', '10', '--top-n', '3',
-        '--min-combo-size', '2', '--max-combo-size', '5'
-    ]):
-        bfe.main()
-    mock_bf.assert_called_once()
-    mock_analyze.assert_called_once()
 
 @patch('qlib.backtest.account.Account')
 @patch('qlib.backtest.executor.SimulatorExecutor')
@@ -727,52 +579,6 @@ def test_run_single_backtest_non_datetime_index(mock_pa, mock_st_create, mock_bt
         res = bfe.run_single_backtest(["m1"], norm_df, 1, 0, "SH000300", "day", MagicMock(), "2020-01-01", "2020-01-02")
         assert res["Ann_Ret"] == 0.1
 
-def test_analyze_results_clustering_and_opt_fails(mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = tmp_path / "complex_fail"
-    out_dir.mkdir()
-    results_df = pd.DataFrame({
-        "models": ["m1", "m2"], 
-        "n_models": [1, 1], 
-        "Ann_Excess": [0.1, 0.12], 
-        "Calmar": [1.0, 1.2], 
-        "Ann_Ret": [0.15, 0.16], 
-        "Max_DD": [-0.1, -0.1]
-    })
-    results_df["diversity_bonus"] = [0.01, 0.02]
-    
-    with patch('qlib.workflow.R') as mock_R_inst:
-        mock_R_inst.get_recorder.return_value.load_object.side_effect = Exception("Load fail")
-        with patch('builtins.print') as mock_print:
-            bfe.analyze_results(results_df, pd.DataFrame(), pd.DataFrame(), {"experiment_name": "exp", "models": {"m1": "r1"}}, str(out_dir), "test")
-            assert any("[跳过] m1: Load fail" in str(call) for call in mock_print.call_args_list)
-
-@patch('quantpits.scripts.brute_force_ensemble.run_single_backtest')
-@patch('quantpits.scripts.brute_force_ensemble.load_config')
-def test_main_oos_validation_stage5(mock_load_cfg, mock_run, mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = tmp_path / "oos_stage5"
-    out_dir.mkdir()
-    
-    res_df = pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1]})
-    res_df.to_csv(out_dir / "brute_force_results_test.csv", index=False)
-    
-    idx = pd.MultiIndex.from_product([pd.to_datetime(["2021-01-01"]), ["A"]], names=["datetime", "instrument"])
-    norm_df = pd.DataFrame({"m1": [0.5]}, index=idx)
-    
-    mock_load_cfg.return_value = ({"anchor_date": "test", "experiment_name": "exp", "models": {"m1": "r1"}}, {"TopK": 1})
-    mock_run.return_value = {"models": "m1", "Ann_Ret": 0.1, "Max_DD": -0.05, "Ann_Excess": 0.05, "Calmar": 2.0}
-
-    with patch('sys.argv', ['script.py', '--auto-test-top', '1', '--output-dir', str(out_dir)]):
-        with patch('quantpits.scripts.brute_force_ensemble.load_predictions', return_value=(norm_df, {})):
-            with patch('quantpits.scripts.brute_force_ensemble.split_is_oos_by_args', return_value=(norm_df, norm_df)):
-                with patch('quantpits.scripts.brute_force_ensemble.brute_force_backtest', return_value=res_df):
-                    with patch('quantpits.scripts.brute_force_ensemble.analyze_results'):
-                        with patch('qlib.backtest.exchange.Exchange'):
-                            with patch('builtins.print'):
-                                bfe.main()
-                        assert os.path.exists(out_dir / "oos_validation_test.csv")
-
 @patch('qlib.backtest.exchange.Exchange')
 def test_brute_force_backtest_grouped_and_no_pending(mock_exch, mock_env, tmp_path):
     bfe, _ = mock_env
@@ -803,20 +609,6 @@ def test_brute_force_backtest_no_results(mock_exch, mock_run, mock_env, tmp_path
         bfe.brute_force_backtest(norm_df, 1, 0, "BENCH", "day", 1, 1, str(out_dir), "no_res")
         assert any("警告: 无有效回测结果" in str(call) for call in mock_print.call_args_list)
 
-@patch('qlib.workflow.R')
-def test_analyze_results_plot_fails(mock_R, mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = tmp_path / "plot_fail"
-    out_dir.mkdir()
-    results_df = pd.DataFrame({"models": ["m1"], "n_models": [1], "Ann_Excess": [0.1], "Calmar": [1.0], "Ann_Ret": [0.15], "Max_DD": [-0.1]})
-    results_df["diversity_bonus"] = [0.0]
-    mock_R.get_recorder.return_value.load_object.side_effect = Exception("Skip cluster")
-
-    with patch('matplotlib.pyplot.savefig', side_effect=Exception("Save fail")):
-        with patch('builtins.print') as mock_print:
-            bfe.analyze_results(results_df, pd.DataFrame(), pd.DataFrame(), {"experiment_name": "exp", "models": {"m1": "r1"}}, str(out_dir), "test")
-            assert any("归因图绘制失败: Save fail" in str(call) for call in mock_print.call_args_list)
-
 def test_main_empty_is_exit(mock_env):
     bfe, _ = mock_env
     with patch('quantpits.scripts.brute_force_ensemble.load_predictions', return_value=(pd.DataFrame(), {})):
@@ -825,37 +617,4 @@ def test_main_empty_is_exit(mock_env):
                 with pytest.raises(SystemExit) as e:
                     bfe.main()
                 assert e.value.code == 1
-
-def test_main_analysis_only_glob(mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = tmp_path / "glob_test"
-    out_dir.mkdir()
-    pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1]}).to_csv(out_dir / "brute_force_results_2020.csv", index=False)
-    idx = pd.MultiIndex.from_product([pd.to_datetime(["2020-01-01"]), ["A"]], names=["datetime", "instrument"])
-    norm_df = pd.DataFrame({"m1": [0.5]}, index=idx)
-
-    with patch('sys.argv', ['script.py', '--analysis-only', '--output-dir', str(out_dir)]):
-        with patch('quantpits.scripts.brute_force_ensemble.load_predictions', return_value=(norm_df, {})):
-            with patch('quantpits.scripts.brute_force_ensemble.split_is_oos_by_args', return_value=(norm_df, pd.DataFrame())):
-                with patch('builtins.print') as mock_print:
-                    with patch('quantpits.scripts.brute_force_ensemble.analyze_results'):
-                        bfe.main()
-                        assert any("使用最新结果文件" in str(call) for call in mock_print.call_args_list)
-
-@patch('quantpits.scripts.brute_force_ensemble.load_config')
-def test_main_oos_validation_no_data(mock_load_cfg, mock_env, tmp_path):
-    bfe, _ = mock_env
-    out_dir = tmp_path / "oos_no_data"
-    out_dir.mkdir()
-    mock_load_cfg.return_value = ({"anchor_date": "test", "experiment_name": "exp", "models": {"m1": "r1"}}, {"TopK": 1})
-    norm_df = pd.DataFrame({"m1": [0.5]}, index=pd.MultiIndex.from_product([pd.to_datetime(["2021-01-01"]), ["A"]], names=["datetime", "instrument"]))
-    with patch('sys.argv', ['script.py', '--auto-test-top', '1', '--output-dir', str(out_dir)]):
-        with patch('quantpits.scripts.brute_force_ensemble.load_predictions', return_value=(norm_df, {})):
-            with patch('quantpits.scripts.brute_force_ensemble.split_is_oos_by_args', return_value=(norm_df, pd.DataFrame())):
-                with patch('quantpits.scripts.brute_force_ensemble.brute_force_backtest', return_value=pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1]})):
-                    with patch('quantpits.scripts.brute_force_ensemble.analyze_results'):
-                        with patch('builtins.print') as mock_print:
-                            bfe.main()
-                            assert any("无法进行 OOS 验证：无 OOS 数据" in str(call) for call in mock_print.call_args_list)
-
 

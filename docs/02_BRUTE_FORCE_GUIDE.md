@@ -13,8 +13,6 @@ python quantpits/scripts/brute_force_ensemble.py --max-combo-size 3
 # 完整穷举（10 个模型 = 1023 个组合，耗时较长）
 python quantpits/scripts/brute_force_ensemble.py
 
-# 仅分析已有结果（不重新跑回测）
-python quantpits/scripts/brute_force_ensemble.py --analysis-only
 
 # 从上次中断处继续（Ctrl+C 中断或崩溃后均可）
 python quantpits/scripts/brute_force_ensemble.py --resume
@@ -43,13 +41,12 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - 提取指标：年化收益、最大回撤、Calmar、超额收益等
 - 支持 `--resume` 从已有 CSV 继续
 
-### Stage 4 — 结果分析
-- **Top 组合展示**：按年化超额排序 Top 20、最稳健 Top 10
-- **模型归因**：统计 Top/Bottom N 中各模型出现频率，计算净胜分
-- **相关性 vs 绩效**：计算多样性红利，找低相关性高 Calmar 的"黄金组合"
-- **层次聚类**：基于超额收益相关性做 Ward 聚类
-- **权重优化**：对 Top 10 单模型做 Max Sharpe / Risk Parity 优化对比
-- **综合报告**：自动输出最佳组合、MVP 核心模型
+### Stage 4 — 元数据导出
+- 穷举结束后，将生成包含回测环境、日期切分设置的 `run_metadata_{date}.json`，供独立分析脚本消费。
+
+### Stage 5 — 独立多维分析与 OOS 验证
+- 穷举本质上是 In-Sample (IS) 寻优。我们将所有分析、挑选和 Out-Of-Sample (OOS) 验证逻辑解耦到了独立的 `analyze_ensembles.py` 脚本中。
+- 通过运行 `python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json`，系统将基于 Yield, Robustness, MVP 等多维度构建候选池，并在 OOS 数据上自动且无偏地打分排名。
 
 > [!NOTE]
 > **关于单模型表现与融合回测的评测差异说明**
@@ -71,8 +68,6 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 | `--top-n` | `50` | 分析时 Top/Bottom N |
 | `--output-dir` | `output/brute_force` | 输出目录 |
 | `--resume` | - | 从已有 CSV 继续（支持崩溃/中断后恢复） |
-| `--skip-analysis` | - | 跳过分析阶段 |
-| `--analysis-only` | - | 仅分析已有结果 |
 | `--n-jobs` | `4` | 并发回测线程数 |
 | `--batch-size` | `50` | 每批处理组合数（影响 checkpoint 粒度和内存） |
 | `--use-groups` | - | 启用分组穷举模式（每组只选一个模型） |
@@ -120,11 +115,6 @@ python quantpits/scripts/brute_force_ensemble.py --min-combo-size 4 --max-combo-
 python quantpits/scripts/brute_force_ensemble.py --freq day
 ```
 
-### 更细粒度的归因分析
-```bash
-# Top/Bottom 100 的归因
-python quantpits/scripts/brute_force_ensemble.py --analysis-only --top-n 100
-```
 
 ## 断点续跑与安全中断
 
@@ -236,13 +226,14 @@ python quantpits/scripts/brute_force_fast.py
 # 在除最后 1 年外的所有数据上寻找最佳组合 (In-Sample)
 # 并在最后 1 年的数据上自动验证前 10 名组合 (Out-Of-Sample)
 # ================================
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 10
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+# 2. 调用独立的分析脚本进行多维筛选和自动 OOS 验证
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
 
 # 使用 GPU 加速
 python quantpits/scripts/brute_force_fast.py --use-gpu
 
-# 仅分析已有结果
-python quantpits/scripts/brute_force_fast.py --analysis-only
 
 # 从上次中断处继续
 python quantpits/scripts/brute_force_fast.py --resume
@@ -278,7 +269,7 @@ python quantpits/scripts/brute_force_fast.py --use-groups --group-config config/
 | `--no-gpu` | - | 强制禁用 GPU |
 | `--cost-rate` | `0.002` | 单次换手交易费用率 (双边 0.2%) |
 
-> 其他参数（`--max-combo-size`, `--resume`, `--analysis-only`, `--use-groups`, `--group-config`, `--exclude-last-years`, `--auto-test-top` 等）与原版相同。
+> 其他参数（`--max-combo-size`, `--resume`, `--use-groups`, `--group-config`, `--exclude-last-years` 等）与原版相同。
 
 ---
 
@@ -293,11 +284,33 @@ python quantpits/scripts/brute_force_fast.py --use-groups --group-config config/
 ```bash
 # 1. 寻找组合并立即在 OOS 数据上验证
 # --exclude-last-years 1: 把最近的 1 年数据剔除，仅使用前 2 年作为 In-Sample 寻找组合
-# --auto-test-top 5: 在被剔除的最近 1 年数据上，验证选出的 Top 5 组合
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 5
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+# 2. 调用独立的分析脚本，在被剔除的最近 1 年 OOS 数据上自动验证模型池
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
 ```
 
-执行后，除了生成正常的 IS 报告外，还会在终端输出 `Stage 5: 自动 Out-Of-Sample (OOS) 验证 (Top 5)`，展示这几个最佳组合在从未见过的新数据上的真实表现。
+执行后，穷举结束后，通过调用 `analyze_ensembles.py` 喂入刚才生成的元数据 JSON，系统将自动构建多维候选池（Yield, Robustness 等），并在被剔除的 OOS 数据上展开真实回测，生成散点图与 OOS 评价报告。
+
+### 分析与评估产出物 (Analysis Artifacts)
+
+运行上述分析脚本后，系统将在 `output/brute_force_fast/` 或对应目录下生成详尽的评估文件：
+- **综合评估报告 (`analysis_report_{date}.txt` / `oos_report_{date}.txt`)**：包含各策略候选池（Yield, MVP, Diversity）在 IS 和 OOS 的年化收益、最大回撤、Calmar等表现。
+- **风险收益全景散点图 (`risk_return_scatter_{date}.png`)**：展示 IS 阶段的所有组合风险-收益表现二维全景以及相关性拟合。
+- **内部聚合特征树状图 (`cluster_dendrogram_{date}.png`)**：基于模型间预测相关性绘制的 Ward 聚类距离分析，识别模型间的同质化。
+- **模型归因重要度 (`model_attribution_{date}.png`)**：基于最优与最差多模型组合进行归因频率统计，发现最有价值的基础模型。
+- **OOS 验证散点图 (`oos_risk_return_{date}.png`)**：多维候选池在 OOS 独立集中的真实盲测结果绘图追踪。
+
+### 分析脚本参数说明 (Analyzer Parameters)
+
+针对独立运行的 `analyze_ensembles.py` 脚本，你还可以追加下列高级指令控制候选池颗粒度：
+
+| 参数 | 说明 |
+|------|------|
+| `--top-n N` | 设定每个维度（Yield, MVP, Defensive 等）默认提取 Top N 组合进入 OOS (默认: 5) |
+| `--top-n-yield`, `--top-n-robust`, 等 | 单独覆盖某一特定派系的 Top N 提取数量。支持的覆盖项包括： `-yield`, `-robust`, `-defensive`, `-mvp`, `-diversity`。 |
+| `--training-mode MODE` | 在评估 OOS 之前，硬性过滤所有组合，仅保留所有成员均匹配给定触发模式（如 `static` 或 `incremental`）的组合进行打分。 |
+| `--max-workers N` | OOS 回测时的并发线程数，默认为 4。如果候选池极大，可适当调高加速验证过程。 |
 
 ### 日期参数说明
 
@@ -305,7 +318,6 @@ python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-
 |------|------|
 | `--exclude-last-years N` | 在寻找组合时，剔除最近 N 年的数据作为 OOS 集。 |
 | `--exclude-last-months N` | 同上，剔除最近 N 个月的数据。 |
-| `--auto-test-top N` | 选择 Top N 在 OOS 集上执行真实回测并生成评估报告 (`oos_validation_{date}.csv`)。|
 | `--start-date YYYY-MM-DD` | 绝对日期过滤：强行指定 IS 阶段的最早开始日期。 |
 | `--end-date YYYY-MM-DD` | 绝对日期过滤：强行截断，即不使用该日期之后的数据。 |
 
@@ -342,9 +354,8 @@ pip install cupy-cuda11x
 output/brute_force_fast/
 ├── correlation_matrix_{date}.csv          # 预测值相关性矩阵
 ├── brute_force_fast_results_{date}.csv    # 回测结果（核心文件）
-├── model_attribution_{date}.csv           # 模型归因表
-├── model_attribution_{date}.png           # 归因条形图
-├── risk_return_scatter_{date}.png         # 风险-收益散点图
-├── optimization_weights_{date}.csv        # 优化权重
-└── analysis_report_fast_{date}.txt        # 综合分析报告
+├── run_metadata_{date}.json               # 运行配置及参数（供独立分析脚本使用）
+├── oos_multi_analysis_{date}.csv          # 【分析脚本生成】多维候选池 OOS 评测结果
+├── oos_risk_return_{date}.png             # 【分析脚本生成】多维候选池 OOS 风险-收益散点图
+└── oos_report_{date}.txt                  # 【分析脚本生成】综合 OOS 分析报告
 ```

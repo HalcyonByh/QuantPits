@@ -17,7 +17,7 @@ An advanced, production-ready quantitative trading system built on top of [Micro
 * **Multi-Workspace Isolation**: Spin up independent "Pits" for different markets (e.g., CSI300, CSI500) or configurations without duplicating code.
 * **Component-Based Pipeline**: 
   - **Train & Predict**: Support for both full and incremental training on multiple models (LSTM, GRU, Transformers, LightGBM, GATs).
-  - **Brute Force & Ensemble**: High-performance (CuPy accelerated) brute force combination finding and intelligent signal fusion.
+  - **Brute Force & Ensemble**: High-performance (CuPy accelerated) brute force combination finding, multidimensional Out-Of-Sample (OOS) pool filtering, and intelligent signal fusion.
   - **Orders & Execution**: Generate actionable buy/sell signals with TopK/DropN logic and analyze micro-friction (slippage, delay costs).
   - **Extensible Broker Adapters**: Decoupled settlement parser supporting arbitrary broker terminal formats (e.g., Guotai Junan).
 * **Rich Observability**: Two interactive `streamlit` dashboards for macro portfolio performance and micro rolling health monitoring.

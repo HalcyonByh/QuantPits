@@ -303,7 +303,19 @@ python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 python quantpits/scripts/brute_force_fast.py
 
 # 带防过拟合的 OOS 验证（推荐！）
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 10
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+### 6.3 组合 OOS 分析与优选
+
+# 根据上一步生成的 metadata 文件，让分析脚本自动构建候选池并进行 OOS 回测
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
+
+# 运行后可在 output 目录下查看多种验证报告与图形：
+# - analysis_report_<date>.txt (IS 阶段综合评估报告)
+# - risk_return_scatter_<date>.png (IS 风险收益及相关性拟合图)
+# - cluster_dendrogram_<date>.png (模型聚类树状图)
+# - model_attribution_<date>.png (前列与落后组合的模型归因重要度频次)
+# - oos_risk_return_<date>.png / oos_report_<date>.txt (OOS 样本外独立测试成绩)
 
 # 使用分组穷举
 python quantpits/scripts/brute_force_fast.py --use-groups
@@ -575,7 +587,10 @@ python quantpits/scripts/order_gen.py
 python quantpits/scripts/static_train.py --predict-only --all-enabled
 
 # ② 快速穷举（带 OOS 验证）
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 10
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+# ③ 评估并验证 Top 候选
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
 
 # ③ 精确验证 Top 候选
 python quantpits/scripts/brute_force_ensemble.py --min-combo-size 3 --max-combo-size 3

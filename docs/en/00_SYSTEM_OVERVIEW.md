@@ -278,7 +278,7 @@ python quantpits/scripts/ensemble_fusion.py \
 
 - **Recommended Workflow**: Use the fast script to rough-screen all combos, then use the original script to accurately verify top candidates
 - Outputs model attribution analysis, risk-return scatter plots, hierarchical clustering, etc.
-- Supports `--resume` to continue running and `--analysis-only` for running analysis only
+- Supports `--resume` to continue running
 
 ### ④ Fusion Prediction Module
 

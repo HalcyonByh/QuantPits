@@ -304,7 +304,19 @@ python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 python quantpits/scripts/brute_force_fast.py
 
 # With OOS anti-overfitting validation (Recommended!)
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 10
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+### 6.3 Ensemble OOS Analytics & Optimization
+
+# Funnels the generated metadata into the analyzer, autonomously filtering candidate pools and mapping OOS validation
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
+
+# Execution saves the following validation reports & graphics inside the output directory:
+# - analysis_report_<date>.txt (Holistic IS Stage Evaluation Report)
+# - risk_return_scatter_<date>.png (IS Risk-Return Spread & Correlation Matrix Plot)
+# - cluster_dendrogram_<date>.png (Model Prediction Proximity Dendrogram)
+# - model_attribution_<date>.png (Frequency Histograms of Models Within Best/Worst Pools)
+# - oos_risk_return_<date>.png / oos_report_<date>.txt (Blind Out-Of-Sample Validity Tests)
 
 # With group-based enumeration
 python quantpits/scripts/brute_force_fast.py --use-groups
@@ -583,7 +595,10 @@ python quantpits/scripts/order_gen.py
 python quantpits/scripts/static_train.py --predict-only --all-enabled
 
 # ② Fast brute-force search (with OOS validation)
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 10
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+# ③ Accurately validate top candidates via the decoupled analyzer
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
 
 # ③ Accurately validate top candidates
 python quantpits/scripts/brute_force_ensemble.py --min-combo-size 3 --max-combo-size 3

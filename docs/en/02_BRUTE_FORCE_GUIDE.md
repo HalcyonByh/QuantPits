@@ -13,8 +13,6 @@ python quantpits/scripts/brute_force_ensemble.py --max-combo-size 3
 # Full exhaustive search (10 models = 1023 combos, highly time-intensive)
 python quantpits/scripts/brute_force_ensemble.py
 
-# Analysis only (bypasses recalculating backtests)
-python quantpits/scripts/brute_force_ensemble.py --analysis-only
 
 # Resume from interruption (via Ctrl+C payload or fatal exit)
 python quantpits/scripts/brute_force_ensemble.py --resume
@@ -43,13 +41,12 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - Extracts core portfolio mechanics: Annualized Return, Max Drawdown, Calmar Ratio, Excess Return.
 - Supports `--resume` to ingest existing CSV batches without restart logic.
 
-### Stage 4 — Result Analysis
-- **Top Combo Ranks**: Ordered by Annualized Excess Return (Top 20) and Calmar Robustness (Top 10).
-- **Model Attribution**: Examines frequency footprints of models inhabiting the Top/Bottom N, constructing net-win distributions.
-- **Correlation vs Performance**: Highlights diversity multipliers, seeking out low-correlation/high-Calmar "Golden Pipelines".
-- **Hierarchical Clustering**: Computes Ward linkage dendrograms utilizing Excess Return profiles.
-- **Weight Optimization**: Comparative trials on Top 10 single models simulating Max Sharpe / Risk Parity optimization mappings.
-- **Comprehensive Reporting**: Generates autonomous summaries of MVP models and superior fusions.
+### Stage 4 — Metadata Verification & Export
+- Generates a configuration snapshot `run_metadata_{date}.json` encapsulating exact environment context and date splits.
+
+### Stage 5 — Decoupled OOS Analysis
+- Brute force is fundamentally In-Sample (IS). All analysis and Out-Of-Sample (OOS) validation logics have been moved to the decoupled `analyze_ensembles.py` script.
+- Executing `python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json` forces the system to construct multidimensional candidate pools (Yield, Robustness, MVP) and run completely blind evaluation scores against the OOS holdout step.
 
 > [!NOTE]
 > **Understanding Metric Discrepancies: Single Models vs. Ensemble Backtests**
@@ -71,8 +68,6 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 | `--top-n` | `50` | Scale N target for Top/Bottom analysis metrics. |
 | `--output-dir` | `output/brute_force` | Directory bounds. |
 | `--resume` | - | Ingest target logic for crash recovery execution. |
-| `--skip-analysis` | - | Skip analytical stages post-run. |
-| `--analysis-only` | - | Jump to Analytics parsing existing outputs locally. |
 | `--n-jobs` | `4` | Parallel concurrent simulations. |
 | `--batch-size` | `50` | Combo count per persistence bucket (Impacts RAM intensity and checkpoint intervals). |
 | `--use-groups` | - | Activate manual exclusionary subset routing (selects at most one model per defined group block). |
@@ -120,11 +115,6 @@ python quantpits/scripts/brute_force_ensemble.py --min-combo-size 4 --max-combo-
 python quantpits/scripts/brute_force_ensemble.py --freq day
 ```
 
-### High-Fidelity Deep Dive Analysis
-```bash
-# Top/Bottom 100 footprint attribution
-python quantpits/scripts/brute_force_ensemble.py --analysis-only --top-n 100
-```
 
 ## Checkpoint Sequencing & Safe Interruptions
 
@@ -237,13 +227,14 @@ python quantpits/scripts/brute_force_fast.py
 # Isolates combinations via purely In-Sample windows filtering the most recent year.
 # Verifies dynamically selected Top 10 ensembles on the completely blind forward step.
 # ================================
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 10
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+# 2. Dispatch decoupled analyzer filtering dynamic ensembles generating autonomous OOS metrics.
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
 
 # Push compute layer to GPU architectures
 python quantpits/scripts/brute_force_fast.py --use-gpu
 
-# Local Analysis
-python quantpits/scripts/brute_force_fast.py --analysis-only
 
 # Crash recovery
 python quantpits/scripts/brute_force_fast.py --resume
@@ -279,7 +270,7 @@ python quantpits/scripts/brute_force_fast.py --use-groups --group-config config/
 | `--no-gpu` | - | Forces host device array calculations. |
 | `--cost-rate` | `0.002` | Friction proxies tied to turnover deviations mapping bidirectional 0.2%. |
 
-> Auxiliary bounds (`--max-combo-size`, `--resume`, `--analysis-only`, `--use-groups`, `--group-config`, `--exclude-last-years`, `--auto-test-top` etc.) translate perfectly over from standard topologies.
+> Auxiliary bounds (`--max-combo-size`, `--resume`, `--use-groups`, `--group-config`, `--exclude-last-years` etc.) translate perfectly over from standard topologies.
 
 ---
 
@@ -294,11 +285,33 @@ By employing `brute_force_ensemble.py` and `brute_force_fast.py` coupled with **
 ```bash
 # 1. Search subsets generating outputs immediately scored on chronological OOS blind data.
 # --exclude-last-years 1: Fences the latest year entirely outside algorithm views processing 2-year prior spans as base.
-# --auto-test-top 5: Forces subsequent backtests against the blind year dynamically scoring robustness.
-python quantpits/scripts/brute_force_fast.py --exclude-last-years 1 --auto-test-top 5
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
+
+# 2. Dispatch decoupled analyzer filtering dynamic ensembles generating autonomous OOS metrics.
+python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
 ```
 
-Deploying traces will output standardized bounds appending a `Stage 5: Autonomous Out-Of-Sample (OOS) Testing Scope (Top 5)` log verifying forward reality mappings.
+Following combinatorial search, routing the exported JSON metadata payload into `analyze_ensembles.py` automatically constructs multidimensional candidate pools ensuring absolute unbiased OOS execution mapping scattering plots and evaluation reports.
+
+### Analysis and Evaluation Artifacts
+
+Upon execution, the script generates comprehensive visualizations and context-rich documents under `output/brute_force_fast/`:
+- **Comprehensive Text Reports (`analysis_report_{date}.txt` / `oos_report_{date}.txt`)**: Distilled insights identifying highest IS Yield, maximum Robustness, MVP combinations, and independent OOS blind validations.
+- **Risk Return Scatter Dashboard (`risk_return_scatter_{date}.png`)**: Exposes thousands of simulated permutations against single-model points plotting raw drawdowns versus annualized excesses, joined by intra-ensemble correlation mappings.
+- **Prediction Cluster Dendrogram (`cluster_dendrogram_{date}.png`)**: Ward-distance hierarchical map graphing distinct prediction clusters avoiding severe homogeneity pools.
+- **Model Attribution Histogram (`model_attribution_{date}.png`)**: Cross-frequency chart comparing occurrence frequencies of sub-models actively selected in 'Best' vs. 'Worst' performance buckets.
+- **OOS Validation Tracking Matrix (`oos_risk_return_{date}.png`)**: Evaluates real-world validity plotting how theoretical specific candidate pools transitioned into actual untainted OOS domains.
+
+### Analyzer Parameters
+
+Beyond `brute_force_fast.py`, the post-generation `analyze_ensembles.py` script offers precise tuning over candidate pool extraction:
+
+| Flags | Control Action |
+|------|------|
+| `--top-n N` | Dictates the universal baseline threshold of Top N combos hauled per strategic pillar into OOS (Default: 5). |
+| `--top-n-yield`, `--top-n-robust`, etc. | Explicitly overrides Top N thresholds for granular pillars. Supported flags: `-yield`, `-robust`, `-defensive`, `-mvp`, `-diversity`. |
+| `--training-mode MODE` | Enforces a strict pattern matcher culling any combinatorial sequences inclusive of model derivatives not terminating with `@MODE` (e.g., `static` or `incremental`) prior to OOS scoring. |
+| `--max-workers N` | Threads to utilize for OOS backtest evaluations (Default: 4), scaling dramatically accelerates processing across extensive evaluation pools. |
 
 ### Date Modifiers
 
@@ -306,7 +319,6 @@ Deploying traces will output standardized bounds appending a `Stage 5: Autonomou
 |------|------|
 | `--exclude-last-years N` | Quarantines most recent chronological N years establishing dynamic IS boundaries prioritizing blind testing sets. |
 | `--exclude-last-months N` | Replicates utilizing discrete month bounds. |
-| `--auto-test-top N` | Isolates Top N algorithms testing them aggressively against forward data dumping `oos_validation_{date}.csv`.|
 | `--start-date YYYY-MM-DD` | Absolute forced start. |
 | `--end-date YYYY-MM-DD` | Subversive forced stop bounds deleting all subsequent rows. |
 
@@ -344,9 +356,8 @@ Fast iteration layers route intrinsically to `output/brute_force_fast/` separati
 output/brute_force_fast/
 ├── correlation_matrix_{date}.csv          # Inter-prediction linkage
 ├── brute_force_fast_results_{date}.csv    # Vector simulations metrics
-├── model_attribution_{date}.csv           # Structural frequency logs
-├── model_attribution_{date}.png           # Structural graphic renders
-├── risk_return_scatter_{date}.png         # Deviation distributions
-├── optimization_weights_{date}.csv        # Bounded optimizations
-└── analysis_report_fast_{date}.txt        # Native execution metrics
+├── run_metadata_{date}.json               # Metadata payload for decoupled analyzer
+├── oos_multi_analysis_{date}.csv          # [Analyzer Output] Multidimensional OOS candidate metrics
+├── oos_risk_return_{date}.png             # [Analyzer Output] Multidimensional OOS risk-return scatter plots
+└── oos_report_{date}.txt                  # [Analyzer Output] Synthesis OOS analytics report
 ```

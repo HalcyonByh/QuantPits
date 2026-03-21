@@ -282,7 +282,7 @@ python quantpits/scripts/ensemble_fusion.py \
 
 - **推荐工作流**：先用快速版粗筛所有组合，再用原版精确验证 Top 候选
 - 输出模型归因分析、风险收益散点图、层次聚类等
-- 支持 `--resume` 断点续跑和 `--analysis-only` 仅分析
+- 支持 `--resume` 断点续跑
 
 ### ④ 融合预测模块
 
