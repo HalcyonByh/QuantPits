@@ -104,22 +104,25 @@ def load_predictions(model_name=None, anchor_date=None, record_file=None, combo_
     from qlib.workflow import R
     
     if model_name:
+        from quantpits.utils.train_utils import resolve_model_key
         record_file = record_file or os.path.join(ROOT_DIR, "latest_train_records.json")
         if not os.path.exists(record_file):
             raise FileNotFoundError(f"无法找到训练记录文件: {record_file}")
         with open(record_file, 'r') as f:
             records = json.load(f)
         models = records.get("models", {})
-        if model_name not in models:
+        # 支持 model@mode 和裸名
+        full_key = resolve_model_key(model_name, models)
+        if not full_key:
             raise ValueError(f"模型 {model_name} 的训练记录未找到")
         
-        record_id = models[model_name]
+        record_id = models[full_key]
         experiment_name = records.get("experiment_name")
         recorder = R.get_recorder(recorder_id=record_id, experiment_name=experiment_name)
         pred_df = recorder.load_object("pred.pkl")
         if isinstance(pred_df, pd.Series):
             pred_df = pred_df.to_frame('score')
-        return pred_df, f"单模型: {model_name} (Record: {record_id})"
+        return pred_df, f"单模型: {full_key} (Record: {record_id})"
 
     # 自动搜索 ensemble 记录
     records_file = os.path.join(ROOT_DIR, "config", "ensemble_records.json")

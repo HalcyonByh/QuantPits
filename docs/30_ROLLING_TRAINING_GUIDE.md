@@ -18,7 +18,7 @@
 | 模型数量 | 每模型 1 个 | 每模型 × N 个窗口 |
 | 适应性 | 低（依赖长期统计特征） | 高（随市场风格滑动更新） |
 | 预测输出 | 单段连续预测 | 多段拼接（自动拼接为连续文件） |
-| 下游兼容性 | `latest_train_records.json` | `latest_rolling_records.json`（通过 `--record-file` 切换） |
+| 下游兼容性 | 统一写入 `latest_train_records.json` 下的 `model@rolling` 键（通过 `--training-mode rolling` 切换） |
 
 ### 共存架构
 
@@ -29,9 +29,8 @@ output/
 ├── predictions/               # 静态训练预测
 │   └── rolling/               # 滚动训练预测记录 (Qlib Recorder，存于 mlruns)
 data/
-├── latest_train_records.json  # 静态训练记录
-├── latest_rolling_records.json# 滚动训练记录
-└── rolling_state.json         # 滚动训练运行状态（中间态，断点恢复用）
+├── latest_train_records.json  # 统一训练记录 (含 @rolling)
+├── rolling_state.json         # 滚动运行状态进度（断点续跑）
 ```
 
 ---
@@ -114,7 +113,7 @@ python quantpits/scripts/rolling_train.py --cold-start --dry-run --all-enabled
 2. 生成所有 rolling windows（到 anchor_date 为止）
 3. 对每个 window × 每个模型执行训练 + 预测
 4. 拼接所有 windows 的预测为连续时间序列
-5. 保存 `latest_rolling_records.json`
+5. 保存 `latest_train_records.json` (以 `@rolling` 后缀写入)
 
 ### 模式二：日常模式
 
@@ -136,7 +135,7 @@ python quantpits/scripts/rolling_train.py --predict-only --all-enabled
 
 ### 模式四：单独回测评估
 
-如果之前已经运行过冷启动或合并流程，且 `latest_rolling_records.json` 存在预测记录，但缺失回测报告（或希望使用新配置重新回测），可以使用独立回测模式。此模式将跳过所有的训练和预测环节，直接使用历史拼接好的全局预测分 (`pred.pkl`) 执行完整的 Qlib 回测。
+如果之前已经运行过冷启动或合并流程，且 `latest_train_records.json` 存在滚动预测记录，但缺失回测报告（或希望使用新配置重新回测），可以使用独立回测模式。此模式将跳过所有的训练和预测环节，直接使用历史拼接好的全局预测分 (`pred.pkl`) 执行完整的 Qlib 回测。
 
 ```bash
 python quantpits/scripts/rolling_train.py --backtest-only
@@ -181,20 +180,20 @@ python quantpits/scripts/rolling_train.py --clear-state
 
 ## 下游衔接
 
-滚动训练的预测结果通过 `--record-file` 参数无缝衔接下游脚本：
+滚动训练的预测结果通过 `--training-mode rolling` 参数无缝衔接下游脚本：
 
 ```bash
 # 穷举
 python quantpits/scripts/brute_force_fast.py \
-  --record-file latest_rolling_records.json
+  --training-mode rolling
 
 # 融合
 python quantpits/scripts/ensemble_fusion.py \
-  --from-config --record-file latest_rolling_records.json
+  --from-config --training-mode rolling
 ```
 
 > [!TIP]
-> 静态和滚动训练的下游流程完全相同，仅通过 `--record-file` 切换数据来源。默认值为 `latest_train_records.json`（静态），指定 `latest_rolling_records.json` 即切换到滚动。
+> 静态和滚动训练的下游流程完全相同，由于使用统一记录文件，仅通过 `--training-mode rolling` 即可过滤对应的滚动模型。默认寻找的是静态模型 (`@static`)。
 
 ---
 

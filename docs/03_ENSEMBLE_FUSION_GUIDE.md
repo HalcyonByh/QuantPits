@@ -38,7 +38,8 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 | `--method` | `equal` | 权重模式: `equal` / `icir_weighted` / `manual` / `dynamic` |
 | `--weights` | 无 | 手动权重，如 `"gru:0.6,linear_Alpha158:0.4"` |
 | `--freq` | `None` | 回测频率: `day` / `week` (默认从 `strategy_config.yaml` 读取) |
-| `--record-file` | `latest_train_records.json` | 训练记录文件 |
+| `--training-mode` | `static` | 限定模型训练模式（如 `static` 或 `rolling`） |
+| `--record-file` | `latest_train_records.json` | 指定训练记录文件 |
 | `--output-dir` | `output/ensemble` | 输出目录 |
 | `--no-backtest` | false | 跳过回测 |
 | `--no-charts` | false | 跳过图表生成 |

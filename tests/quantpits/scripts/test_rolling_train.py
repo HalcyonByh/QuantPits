@@ -498,10 +498,11 @@ class TestFunctionalLogic:
         combined = {'m1': 'rid1'}
         rt.save_rolling_records(combined, 'exp', '2024-01-01')
         
-        record_file = workspace / "latest_rolling_records.json"
+        record_file = workspace / "latest_train_records.json"
         assert record_file.exists()
         data = json.loads(record_file.read_text())
-        assert data['models']['m1'] == 'rid1'
+        assert 'm1@rolling' in data['models']
+        assert data['models']['m1@rolling'] == 'rid1'
 
     def test_train_window_model_training_failure(self, mock_env):
         rt, _ = mock_env
@@ -544,10 +545,11 @@ class TestFunctionalLogic:
         rt, workspace = mock_env
         combined = {'m1': 'rid1'}
         rt.save_rolling_records(combined, 'exp', '2024-03-31')
-        record_file = workspace / "latest_rolling_records.json"
+        record_file = workspace / "latest_train_records.json"
         assert record_file.exists()
         data = json.loads(record_file.read_text())
-        assert data['models']['m1'] == 'rid1'
+        assert 'm1@rolling' in data['models']
+        assert data['models']['m1@rolling'] == 'rid1'
 
     def test_predict_with_latest_model_real_logic(self, mock_env):
         rt, _ = mock_env
@@ -905,11 +907,11 @@ class TestRunModesExtra:
         args = mock.MagicMock()
         targets = {'m1': {}}
         
-        # Create dummy record file
-        rec_file = workspace / "latest_rolling_records.json"
+        # Create dummy unified record file with model@rolling keys
+        rec_file = workspace / "latest_train_records.json"
         rec_file.write_text(json.dumps({
             "experiment_name": "Exp",
-            "models": {"m1": "rec123"}
+            "models": {"m1@rolling": "rec123"}
         }))
 
         with mock.patch('quantpits.utils.env.init_qlib'), \
@@ -917,13 +919,8 @@ class TestRunModesExtra:
              mock.patch('rolling_train.run_combined_backtest') as mock_run_bt:
             
             mock_base.return_value = {'freq': 'week', 'benchmark': 'SH000300'}
-            # Note: run_backtest_only imports ROLLING_RECORD_FILE from train_utils
-            # Our mock_env already reloads rolling_train which should pick up the mocked workspace path if train_utils was patched correctly.
-            # But ROLLING_RECORD_FILE might be bound at import time.
-            # In mock_env: monkeypatch.setattr(train_utils, 'ROLLING_PREDICTION_DIR', ...)
-            # Let's ensure ROLLING_RECORD_FILE is also mocked.
             from quantpits.utils import train_utils
-            with mock.patch.object(train_utils, 'ROLLING_RECORD_FILE', str(rec_file)):
+            with mock.patch.object(train_utils, 'RECORD_OUTPUT_FILE', str(rec_file)):
                 rt.run_backtest_only(args, targets)
                 mock_run_bt.assert_called_once()
 

@@ -1331,6 +1331,9 @@ def main():
                         help='回测频率 (默认从 model_config 读取)')
     parser.add_argument('--record-file', type=str, default='latest_train_records.json',
                         help='训练记录文件 (默认 latest_train_records.json)')
+    parser.add_argument('--training-mode', type=str, default=None,
+                        choices=['static', 'rolling'],
+                        help='训练模式过滤 (默认 None=自动解析，static 或 rolling)')
     parser.add_argument('--output-dir', type=str, default='output/ensemble',
                         help='输出目录 (默认 output/ensemble)')
     parser.add_argument('--prediction-dir', type=str, default=None,
@@ -1378,18 +1381,25 @@ def main():
 
     anchor_date = train_records.get('anchor_date', datetime.now().strftime('%Y-%m-%d'))
     experiment_name = train_records['experiment_name']
-    available_models = list(train_records['models'].keys())
+    all_models_dict = train_records.get('models', {})
+    # 获取 --training-mode（CLI 级别默认模式）
+    cli_training_mode = getattr(args, 'training_mode', None)
+
+    from quantpits.utils.train_utils import resolve_model_key
 
     # ---- 确定要运行的 combo 列表 ----
     combos_to_run = []  # list of (name, models, method, manual_weights_str, is_default)
 
     if args.models:
-        # 直接指定模型列表模式（原始行为）
-        selected_models = [m.strip() for m in args.models.split(',')]
-        missing = [m for m in selected_models if m not in available_models]
-        if missing:
-            print(f"\nWarning: 以下模型不在训练记录中，将被跳过: {missing}")
-            selected_models = [m for m in selected_models if m not in missing]
+        # 直接指定模型列表模式 — 解析 model@mode key
+        raw_models = [m.strip() for m in args.models.split(',')]
+        selected_models = []
+        for m in raw_models:
+            full_key = resolve_model_key(m, all_models_dict, cli_training_mode)
+            if full_key:
+                selected_models.append(full_key)
+            else:
+                print(f"\nWarning: 模型 '{m}' 不在训练记录中，将被跳过")
         if not selected_models:
             print("Error: 没有有效的模型")
             sys.exit(1)
@@ -1403,8 +1413,17 @@ def main():
             print(f"可用的 combo: {list(combos.keys())}")
             sys.exit(1)
         cfg = combos[args.combo]
+        # combo 级 training_mode > CLI 级
+        combo_mode = cfg.get('training_mode', cli_training_mode)
+        resolved = []
+        for m in cfg['models']:
+            full_key = resolve_model_key(m, all_models_dict, combo_mode)
+            if full_key:
+                resolved.append(full_key)
+            else:
+                print(f"Warning: combo '{args.combo}' 中模型 '{m}' 不在训练记录中")
         is_def = cfg.get('default', False)
-        combos_to_run.append((args.combo, cfg['models'], cfg.get('method', 'equal'),
+        combos_to_run.append((args.combo, resolved, cfg.get('method', 'equal'),
                               None, is_def))
 
     elif args.from_config_all:
@@ -1414,8 +1433,16 @@ def main():
             print("Error: ensemble_config.json 中没有 combos")
             sys.exit(1)
         for name, cfg in combos.items():
+            combo_mode = cfg.get('training_mode', cli_training_mode)
+            resolved = []
+            for m in cfg['models']:
+                full_key = resolve_model_key(m, all_models_dict, combo_mode)
+                if full_key:
+                    resolved.append(full_key)
+                else:
+                    print(f"Warning: combo '{name}' 中模型 '{m}' 不在训练记录中")
             is_def = cfg.get('default', False)
-            combos_to_run.append((name, cfg['models'], cfg.get('method', 'equal'),
+            combos_to_run.append((name, resolved, cfg.get('method', 'equal'),
                                   None, is_def))
         print(f"多组合模式: 共 {len(combos_to_run)} 个 combo")
         for name, models, method, _, is_def in combos_to_run:
@@ -1433,20 +1460,24 @@ def main():
         method = default_cfg.get('method', 'equal')
         if args.method != 'equal':  # 用户显式指定了 method
             method = args.method
-        combos_to_run.append((default_name, default_cfg['models'], method,
+        combo_mode = default_cfg.get('training_mode', cli_training_mode)
+        resolved = []
+        for m in default_cfg['models']:
+            full_key = resolve_model_key(m, all_models_dict, combo_mode)
+            if full_key:
+                resolved.append(full_key)
+            else:
+                print(f"Warning: default combo 中模型 '{m}' 不在训练记录中")
+        combos_to_run.append((default_name, resolved, method,
                               args.weights, True))
         print(f"从 ensemble_config.json 加载 default combo: {default_name}")
-        print(f"模型: {default_cfg['models']}")
+        print(f"模型: {resolved}")
         print(f"权重: {method}")
 
-    # ---- 验证所有 combo 的模型 ----
+    # ---- 验证所有 combo 的模型（已在上面 resolve 时处理）----
     all_needed_models = set()
     for _, models, _, _, _ in combos_to_run:
-        valid_models = [m for m in models if m in available_models]
-        missing = [m for m in models if m not in available_models]
-        if missing:
-            print(f"\nWarning: 以下模型不在训练记录中，将被跳过: {missing}")
-        all_needed_models.update(valid_models)
+        all_needed_models.update(models)
 
     if not all_needed_models:
         print("Error: 没有有效的模型")

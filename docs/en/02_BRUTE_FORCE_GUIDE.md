@@ -63,6 +63,7 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 
 | Parameter | Default | Description |
 |------|--------|------|
+| `--training-mode` | `static` | Filter models by mode (e.g. `static` or `rolling`) |
 | `--record-file` | `latest_train_records.json` | Train records pointer targeting model manifests. |
 | `--max-combo-size` | `0` (All) | Upper limit of combined models (Or clusters if grouped). |
 | `--min-combo-size` | `1` | Lower limit of combined models (Or clusters if grouped). |

@@ -133,6 +133,7 @@ def run_full_train(args):
         overwrite_train_records,
         backup_file_with_date,
         print_model_table,
+        make_model_key,
         PREDICTION_OUTPUT_DIR,
         RECORD_OUTPUT_FILE,
     )
@@ -177,7 +178,8 @@ def run_full_train(args):
                                     no_pretrain=args.no_pretrain)
 
         if result['success']:
-            current_records['models'][model_name] = result['record_id']
+            model_key = make_model_key(model_name, 'static')
+            current_records['models'][model_key] = result['record_id']
             if result['performance']:
                 model_performances[model_name] = result['performance']
         else:
@@ -218,6 +220,7 @@ def run_incremental_train(args, targets):
         load_run_state,
         clear_run_state,
         print_model_table,
+        make_model_key,
         RECORD_OUTPUT_FILE,
     )
 
@@ -298,7 +301,8 @@ def run_incremental_train(args, targets):
         )
 
         if result['success']:
-            new_records['models'][model_name] = result['record_id']
+            model_key = make_model_key(model_name, 'static')
+            new_records['models'][model_key] = result['record_id']
             if result['performance']:
                 new_performances[model_name] = result['performance']
 
@@ -362,6 +366,7 @@ def run_predict_only(args, targets):
         merge_performance_file,
         predict_single_model,
         print_model_table,
+        make_model_key,
         PREDICTION_OUTPUT_DIR,
         RECORD_OUTPUT_FILE,
     )
@@ -437,7 +442,8 @@ def run_predict_only(args, targets):
         )
 
         if result['success']:
-            new_records['models'][model_name] = result['record_id']
+            model_key = make_model_key(model_name, 'static')
+            new_records['models'][model_key] = result['record_id']
             if result['performance']:
                 new_performances[model_name] = result['performance']
         else:

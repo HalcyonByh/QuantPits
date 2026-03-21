@@ -85,7 +85,7 @@ flowchart TB
 
     REG["model_registry.yaml<br/>模型注册表"]
     LTR["latest_train_records.json<br/>训练记录"]
-    LRR["latest_rolling_records.json<br/>滚动训练记录"]
+    LRR["latest_train_records.json<br/>统一训练记录<br/>(含 @rolling)"]
     PRED_REC["output/predictions/<br/>预测 Recorders"]
     WC["prod_config.json<br/>持仓/现金"]
 
@@ -97,8 +97,8 @@ flowchart TB
     ROLLING --> LRR
     LTR --> BRUTEFORCE
     LTR --> FUSION
-    LRR -.->|--record-file| BRUTEFORCE
-    LRR -.->|--record-file| FUSION
+    LRR -.->|--training-mode rolling| BRUTEFORCE
+    LRR -.->|--training-mode rolling| FUSION
     FUSION --> PRED_REC
     PREDICT --> PRED_REC
     PRED_REC --> ORDERGEN
@@ -216,9 +216,11 @@ python quantpits/scripts/ensemble_fusion.py \
 python quantpits/scripts/rolling_train.py --cold-start --all-enabled
 
 # ③④ 穷举 + 融合（使用滚动预测）
-python quantpits/scripts/brute_force_fast.py --record-file latest_rolling_records.json
+python quantpits/scripts/brute_force_fast.py --training-mode rolling
+
+# ③④ 穷举 + 融合（使用滚动预测）
 python quantpits/scripts/ensemble_fusion.py \
-  --from-config --record-file latest_rolling_records.json
+  --from-config --training-mode rolling
 
 # ⑤⑥ Post-Trade + 订单生成（同其他场景）
 ```
@@ -250,11 +252,11 @@ python quantpits/scripts/ensemble_fusion.py \
 
 | 脚本 | 用途 | 保存语义 |
 |------|------|----------|
-| `rolling_train.py` | 滑动窗口训练 + 预测拼接 | **独立** `latest_rolling_records.json` |
+| `rolling_train.py` | 滑动窗口训练 + 预测拼接 | **统一记录** `latest_train_records.json` |
 
-- 与静态训练完全独立，共存于同一 Workspace
+- 与静态训练共存于同一个记录文件，使用 `model@rolling` 键格式存储
 - 支持冷启动、日常模式（自动判断训练/预测）、仅预测、断点恢复
-- 下游通过 `--record-file latest_rolling_records.json` 无缝切换数据源
+- 下游通过 `--training-mode rolling` 参数无缝切换数据源
 - 配置文件：`config/rolling_config.yaml`（起点、训练年数、验证年数、步长）
 
 ### ② 预测模块
@@ -416,7 +418,7 @@ python quantpits/scripts/ensemble_fusion.py \
 | `order_history/` | 历史订单建议、交易明细、交易软件导出表（由归档脚本管理） |
 | `run_state.json` | 增量训练运行状态（支持断点续跑） |
 | `rolling_state.json` | 滚动训练状态（断点恢复用） |
-| `latest_rolling_records.json` | 滚动训练记录（下游 `--record-file` 使用） |
+| `migrate_records.py` | （工具库）用于将旧的双文件记录系统升级为新的统一 `model@mode` 记录格式 |
 | `trade_log_full.csv` | 累计交易日志（含买入和卖出） |
 | `holding_log_full.csv` | 累计持仓日志 |
 | `daily_amount_log_full.csv` | 每日资金汇总 |

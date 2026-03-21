@@ -18,7 +18,7 @@ Traditional static training (`static_train.py --full`, `static_train.py`) uses *
 | Number of Models | 1 per model | 1 per model × N windows |
 | Adaptability | Low (relies on long-term statistical features) | High (slides with market regime) |
 | Prediction Output | Single continuous segment | Multi-segment stitched (auto-concatenated into one file) |
-| Downstream Compat. | `latest_train_records.json` | `latest_rolling_records.json` (switch via `--record-file`) |
+| Downstream Compat. | Unified `latest_train_records.json` with `model@rolling` keys (switch via `--training-mode rolling`) |
 
 ### Coexistence Architecture
 
@@ -29,9 +29,8 @@ output/
 ├── predictions/               # Static training predictions
 │   └── rolling/               # Rolling training prediction records (Qlib Recorders in mlruns)
 data/
-├── latest_train_records.json  # Static training records
-├── latest_rolling_records.json# Rolling training records
-└── rolling_state.json         # Rolling training run state (for crash recovery)
+├── latest_train_records.json  # Unified training records (incl. @rolling)
+├── rolling_state.json         # Progress tracker (for resume)
 ```
 
 ---
@@ -114,7 +113,7 @@ Cold start workflow:
 2. Generate all rolling windows (up to anchor_date)
 3. Train + predict for each window × model combination
 4. Concatenate all windows' predictions into a continuous time series
-5. Save `latest_rolling_records.json`
+5. Save `latest_train_records.json` (using `@rolling` suffix keys)
 
 ### Mode 2: Daily Mode
 
@@ -136,7 +135,7 @@ python quantpits/scripts/rolling_train.py --predict-only --all-enabled
 
 ### Mode 4: Standalone Backtest Evaluation
 
-If a run was previously executed and `latest_rolling_records.json` exists with concatenated predictions, but the comprehensive backtest was skipped (or is desired to be rerun with updated configs), you can use the standalone backtest mode. This mode skips all machine learning training and prediction steps. It directly runs a full Qlib Backtest simulation using the stored concatenated prediction scores (`pred.pkl`).
+If a run was previously executed and `latest_train_records.json` exists with concatenated rolling predictions, but the comprehensive backtest was skipped (or is desired to be rerun with updated configs), you can use the standalone backtest mode. This mode skips all machine learning training and prediction steps. It directly runs a full Qlib Backtest simulation using the stored concatenated prediction scores (`pred.pkl`).
 
 ```bash
 python quantpits/scripts/rolling_train.py --backtest-only
@@ -181,20 +180,20 @@ Consistent with static training, all model filtering options are supported:
 
 ## Downstream Integration
 
-Rolling training predictions seamlessly connect to downstream scripts via `--record-file`:
+Rolling training predictions seamlessly connect to downstream scripts via `--training-mode`:
 
 ```bash
 # Brute force screening
 python quantpits/scripts/brute_force_fast.py \
-  --record-file latest_rolling_records.json
+  --training-mode rolling
 
 # Ensemble fusion
 python quantpits/scripts/ensemble_fusion.py \
-  --from-config --record-file latest_rolling_records.json
+  --from-config --training-mode rolling
 ```
 
 > [!TIP]
-> The downstream workflow is identical for static and rolling training. The only difference is the `--record-file` argument. The default is `latest_train_records.json` (static); specify `latest_rolling_records.json` to switch to rolling.
+> The downstream workflow is identical for static and rolling training. Because they use a unified train records file, the only difference is appending `--training-mode rolling` to filter for rolling models. The default looks for static models (`@static`).
 
 ---
 

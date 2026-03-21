@@ -466,29 +466,33 @@ def concatenate_rolling_predictions(state, model_names, rolling_exp_name,
 
 def save_rolling_records(combined_records, combined_exp_name, anchor_date):
     """
-    保存 latest_rolling_records.json
+    保存 rolling 训练记录到统一的 latest_train_records.json
 
-    格式与 latest_train_records.json 一致，以便下游直接 --record-file 读取。
+    使用 model@rolling key 格式写入统一记录文件，通过 merge 方式保留其他模式的记录。
     """
-    from quantpits.utils.train_utils import ROLLING_RECORD_FILE, backup_file_with_date
+    from quantpits.utils.train_utils import (
+        make_model_key, merge_train_records, RECORD_OUTPUT_FILE,
+    )
+
+    # 将 rolling 模型的 key 转为 model@rolling 格式
+    rolling_models = {}
+    for name, rid in combined_records.items():
+        rolling_key = make_model_key(name, 'rolling')
+        rolling_models[rolling_key] = rid
 
     records = {
         "experiment_name": combined_exp_name,
         "anchor_date": anchor_date,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "mode": "rolling",
-        "models": combined_records,
+        "models": rolling_models,
     }
 
-    backup_file_with_date(ROLLING_RECORD_FILE, prefix="rolling_records")
+    merge_train_records(records)
 
-    with open(ROLLING_RECORD_FILE, 'w') as f:
-        json.dump(records, f, indent=4)
-
-    print(f"\n📋 Rolling 记录已保存: {ROLLING_RECORD_FILE}")
-    print(f"   模型数: {len(combined_records)}")
-    for name, rid in combined_records.items():
-        print(f"   {name}: {rid}")
+    print(f"\n📋 Rolling 记录已合并到统一文件: {RECORD_OUTPUT_FILE}")
+    print(f"   模型数: {len(rolling_models)}")
+    for key, rid in rolling_models.items():
+        print(f"   {key}: {rid}")
 
 
 # ================= 日常预测 =================
@@ -983,33 +987,56 @@ def run_combined_backtest(model_names, combined_records, combined_exp_name, para
 
 
 def run_backtest_only(args, targets):
-    """仅回测模式：读取 latest_rolling_records.json 直接运行"""
+    """仅回测模式：读取统一训练记录中的 rolling 模型并运行回测"""
     import os, json
-    from quantpits.utils.train_utils import ROLLING_RECORD_FILE
+    from quantpits.utils.train_utils import (
+        RECORD_OUTPUT_FILE, filter_models_by_mode, parse_model_key,
+    )
     env.init_qlib()
     params_base = get_base_params()
-    
-    if os.path.exists(ROLLING_RECORD_FILE):
-        with open(ROLLING_RECORD_FILE, 'r') as f:
+
+    if os.path.exists(RECORD_OUTPUT_FILE):
+        with open(RECORD_OUTPUT_FILE, 'r') as f:
             records = json.load(f)
     else:
         records = None
-        
+
     if not records or "models" not in records:
-        print("❌ 找不到有效的 latest_rolling_records.json 或内容为空。")
+        print("❌ 找不到有效的 latest_train_records.json 或内容为空。")
         return
-        
+
+    # 从统一文件中过滤出 rolling 模式的模型
+    rolling_models = filter_models_by_mode(records.get('models', {}), 'rolling')
+    if not rolling_models:
+        print("❌ 统一训练记录中没有 @rolling 模式的模型记录。")
+        return
+
+    # 构建一个 rolling-only 的 records dict 供下游使用
+    records = dict(records)  # shallow copy
+    records['models'] = rolling_models
+
     combined_exp_name = records.get("experiment_name")
+    # 优先使用 rolling_experiment_name（迁移后可能存在）
+    if records.get('rolling_experiment_name'):
+        combined_exp_name = records['rolling_experiment_name']
     if not combined_exp_name:
         freq = params_base['freq'].upper()
         combined_exp_name = f"Rolling_Combined_{freq}"
         
     combined_records = records["models"]
+    # rolling_models 的 key 是 model@rolling 格式，targets 是裸名
+    # 构建 base_name -> full_key 的映射
+    base_to_key = {}
+    for key in combined_records:
+        base_name, _ = parse_model_key(key)
+        base_to_key[base_name] = key
+
     model_names = []
-    
     for m in targets.keys():
         if m in combined_records:
             model_names.append(m)
+        elif m in base_to_key:
+            model_names.append(base_to_key[m])
             
     if not model_names:
         print("❌ 选定的模型中没有找到历史滚动预测记录。")

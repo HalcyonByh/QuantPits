@@ -38,6 +38,7 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 | `--method` | `equal` | Weighting mode: `equal` / `icir_weighted` / `manual` / `dynamic` |
 | `--weights` | None | Manual weights string, e.g., `"gru:0.6,linear_Alpha158:0.4"` |
 | `--freq` | `None` | Backtest frequency: `day` / `week` (Default: read from `strategy_config.yaml`) |
+| `--training-mode` | `static` | Filter models by mode (e.g. `static` or `rolling`) |
 | `--record-file` | `latest_train_records.json` | Train records pointer |
 | `--output-dir` | `output/ensemble` | Output directory bounds |
 | `--no-backtest` | false | Skip backtesting execution |

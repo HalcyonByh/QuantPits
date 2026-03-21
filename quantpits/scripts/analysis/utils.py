@@ -133,24 +133,26 @@ def load_holding_log():
 def load_model_predictions(model_name, start_date=None, end_date=None):
     """
     Load a model's prediction series from Qlib Recorders spanning the requested dates.
-    Here we expect the model record id to be found in config/latest_train_records.json or config/latest_rolling_records.json
+    Reads the unified latest_train_records.json and resolves model@mode keys.
     """
     from qlib.workflow import R
-    
-    # Try looking in latest_train_records.json
+    from quantpits.utils.train_utils import resolve_model_key
+
+    # Read unified record file
     record_id, experiment_name = None, None
-    for rec_file in ['latest_train_records.json', 'latest_rolling_records.json']:
-        file_path = os.path.join(ROOT_DIR, "config", rec_file)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r') as f:
-                    rec_data = json.load(f)
-                if model_name in rec_data.get('models', {}):
-                    record_id = rec_data['models'][model_name]
-                    experiment_name = rec_data.get('experiment_name')
-                    break
-            except Exception:
-                pass
+    rec_file = os.path.join(ROOT_DIR, "latest_train_records.json")
+    if os.path.exists(rec_file):
+        try:
+            with open(rec_file, 'r') as f:
+                rec_data = json.load(f)
+            models_dict = rec_data.get('models', {})
+            # Resolve the model name (supports bare name and model@mode)
+            full_key = resolve_model_key(model_name, models_dict)
+            if full_key:
+                record_id = models_dict[full_key]
+                experiment_name = rec_data.get('experiment_name')
+        except Exception:
+            pass
                 
     if not record_id:
         print(f"Warning: Model {model_name} not found in train/rolling records.")

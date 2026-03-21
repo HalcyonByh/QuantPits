@@ -63,7 +63,8 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--record-file` | `latest_train_records.json` | 训练记录文件 |
+| `--training-mode` | `static` | 限定模型训练模式（如 `static` 或 `rolling`） |
+| `--record-file` | `latest_train_records.json` | 指定训练记录文件 |
 | `--max-combo-size` | `0` (全部) | 最大组合模型数（分组模式下指选几个组） |
 | `--min-combo-size` | `1` | 最小组合模型数（分组模式下指选几个组） |
 | `--freq` | `None` | 回测交易频率 (`day` / `week`)，默认从 `strategy_config.yaml` 读取 |

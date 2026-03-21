@@ -1198,6 +1198,11 @@ def main():
         help="训练记录文件路径 (默认: latest_train_records.json)",
     )
     parser.add_argument(
+        "--training-mode", type=str, default=None,
+        choices=["static", "rolling"],
+        help="训练模式过滤 (默认 None=全部，static 或 rolling)",
+    )
+    parser.add_argument(
         "--max-combo-size", type=int, default=0,
         help="最大组合大小 (0=全部, 默认: 0)",
     )
@@ -1302,7 +1307,13 @@ def main():
     # 输出目录
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Stage 1: 加载预测数据
+    # Stage 1: 加载预测数据 (应用 training-mode 过滤)
+    if getattr(args, 'training_mode', None):
+        from quantpits.utils.train_utils import filter_models_by_mode
+        filtered = filter_models_by_mode(train_records.get('models', {}), args.training_mode)
+        train_records = dict(train_records)
+        train_records['models'] = filtered
+        print(f"训练模式过滤: {args.training_mode} (剩余 {len(filtered)} 个模型)")
     norm_df, model_metrics = load_predictions(train_records)
 
     # 划分数据集 (IS / OOS)

@@ -24,10 +24,13 @@ from quantpits.scripts.analysis.portfolio_analyzer import PortfolioAnalyzer
 
 def main():
     parser = argparse.ArgumentParser(description="Comprehensive Analysis Module")
-    parser.add_argument('--models', type=str, nargs='+', help="Model names to analyze (e.g., gru mlp tabnet)")
+    parser.add_argument('--models', type=str, nargs='+', help="Model names to analyze (e.g., gru mlp tabnet, supports model@mode)")
     parser.add_argument('--start-date', type=str, help="Start date (YYYY-MM-DD)")
     parser.add_argument('--end-date', type=str, help="End date (YYYY-MM-DD)")
     parser.add_argument('--output', type=str, default="output/analysis_report.md", help="Output markdown file path")
+    parser.add_argument('--training-mode', type=str, default=None,
+                        choices=['static', 'rolling'],
+                        help='训练模式过滤 (默认 None=自动解析)')
     parser.add_argument('--shareable', action='store_true', help="Redact monetary amounts and individual stock details for sharing")
     args = parser.parse_args()
 

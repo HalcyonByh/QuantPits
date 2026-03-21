@@ -560,8 +560,8 @@ source workspaces/MyWorkspace/run_env.sh
 
 # ① Predict
 python quantpits/scripts/static_train.py --predict-only --all-enabled
-```
 
+# ② Fusion
 python quantpits/scripts/ensemble_fusion.py --from-config-all
 
 # ③ Post-Trade (if live trading)

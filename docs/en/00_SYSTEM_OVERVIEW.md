@@ -83,7 +83,7 @@ flowchart TB
 
     REG["model_registry.yaml<br/>Model Registry"]
     LTR["latest_train_records.json<br/>Train Records"]
-    LRR["latest_rolling_records.json<br/>Rolling Records"]
+    LRR["latest_train_records.json<br/>Unified Train Records<br/>(incl. @rolling)"]
     PRED_REC["output/predictions/<br/>Prediction Recorders"]
     WC["prod_config.json<br/>Holdings/Cash"]
 
@@ -95,8 +95,8 @@ flowchart TB
     ROLLING --> LRR
     LTR --> BRUTEFORCE
     LTR --> FUSION
-    LRR -.->|--record-file| BRUTEFORCE
-    LRR -.->|--record-file| FUSION
+    LRR -.->|--training-mode rolling| BRUTEFORCE
+    LRR -.->|--training-mode rolling| FUSION
     FUSION --> PRED_REC
     PREDICT --> PRED_REC
     PRED_REC --> ORDERGEN
@@ -214,9 +214,9 @@ When static model predictions degrade due to market regime changes, use rolling 
 python quantpits/scripts/rolling_train.py --cold-start --all-enabled
 
 # ③④ Brute force + Fusion (using rolling predictions)
-python quantpits/scripts/brute_force_fast.py --record-file latest_rolling_records.json
+python quantpits/scripts/brute_force_fast.py --training-mode rolling
 python quantpits/scripts/ensemble_fusion.py \
-  --from-config --record-file latest_rolling_records.json
+  --from-config --training-mode rolling
 
 # ⑤⑥ Post-Trade + Order Gen (Same as other scenarios)
 ```
@@ -248,11 +248,11 @@ python quantpits/scripts/ensemble_fusion.py \
 
 | Script | Purpose | Save Semantics |
 |------|------|----------|
-| `rolling_train.py` | Sliding window training + prediction stitching | **Independent** `latest_rolling_records.json` |
+| `rolling_train.py` | Sliding window training + prediction stitching | **Unified** `latest_train_records.json` |
 
-- Fully independent from static training, coexists in the same Workspace
+- Coexists with static training in the same record file, stored under `model@rolling` keys
 - Supports cold start, daily mode (auto-detect train vs predict), predict-only, crash recovery
-- Downstream scripts switch data source via `--record-file latest_rolling_records.json`
+- Downstream scripts switch data source via `--training-mode rolling` parameter
 - Config: `config/rolling_config.yaml` (start date, train years, valid years, step size)
 
 ### ② Prediction Module
@@ -414,7 +414,7 @@ latest_train_records.json   prod_config.json (Update Pos/Cash)
 | `order_history/` | Historical order suggestions, trade details, exported brokerage Excel files (supervised by archiver) |
 | `run_state.json` | State tracker for incremental training (Resume functionality) |
 | `rolling_state.json` | Rolling training state tracker (crash recovery) |
-| `latest_rolling_records.json` | Rolling training records (downstream `--record-file` usage) |
+| `migrate_records.py` | (Tool) Upgrades legacy dual-file record system to unified `model@mode` format |
 | `trade_log_full.csv` | Cumulative trade log (both buys and sells) |
 | `holding_log_full.csv` | Cumulative holdings log |
 | `daily_amount_log_full.csv` | Daily capital summary |

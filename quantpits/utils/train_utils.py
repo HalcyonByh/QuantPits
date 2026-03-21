@@ -41,8 +41,154 @@ ROLLING_PREDICTION_DIR = os.path.join(ROOT_DIR, "output", "predictions", "rollin
 HISTORY_DIR = os.path.join(ROOT_DIR, "data", "history")
 RUN_STATE_FILE = os.path.join(ROOT_DIR, "data", "run_state.json")
 ROLLING_STATE_FILE = os.path.join(ROOT_DIR, "data", "rolling_state.json")
-ROLLING_RECORD_FILE = os.path.join(ROOT_DIR, "latest_rolling_records.json")
+# Legacy: kept only for migration from old dual-file format
+LEGACY_ROLLING_RECORD_FILE = os.path.join(ROOT_DIR, "latest_rolling_records.json")
 PRETRAINED_DIR = os.path.join(ROOT_DIR, "data", "pretrained")
+
+# Unified training mode system
+KNOWN_TRAINING_MODES = ['static', 'rolling']
+DEFAULT_TRAINING_MODE = 'static'
+MODE_SEPARATOR = '@'
+
+
+# ================= Model Key Helpers =================
+def make_model_key(model_name, mode=None):
+    """构造 model@mode 复合 key
+
+    Args:
+        model_name: 模型名称 (如 'gru_Alpha158')
+        mode: 训练模式 (如 'static', 'rolling'). None 则使用 DEFAULT_TRAINING_MODE
+
+    Returns:
+        str: 复合 key (如 'gru_Alpha158@static')
+    """
+    if mode is None:
+        mode = DEFAULT_TRAINING_MODE
+    if MODE_SEPARATOR in model_name:
+        # 已经是复合 key，直接返回
+        return model_name
+    return f"{model_name}{MODE_SEPARATOR}{mode}"
+
+
+def parse_model_key(key):
+    """解析 model@mode 复合 key
+
+    Args:
+        key: 复合 key 或裸模型名
+
+    Returns:
+        tuple: (model_name, mode). 无 '@' 时 mode 默认 'static'
+    """
+    if MODE_SEPARATOR in key:
+        parts = key.rsplit(MODE_SEPARATOR, 1)
+        return parts[0], parts[1]
+    return key, DEFAULT_TRAINING_MODE
+
+
+def resolve_model_key(name, models_dict, default_mode=None):
+    """将裸模型名或完整 key 解析为 models_dict 中实际存在的 key
+
+    解析优先级：
+    1. name 本身是完整 key 且存在 → 直接返回
+    2. name 是裸名 + default_mode 指定 → 返回 name@default_mode
+    3. name 是裸名 + 无 default_mode → 按 KNOWN_TRAINING_MODES 顺序搜索
+    4. 找不到 → 返回 None
+
+    Args:
+        name: 模型名或 model@mode 完整 key
+        models_dict: 训练记录中的 models dict
+        default_mode: 默认训练模式，None 则自动搜索
+
+    Returns:
+        str or None: 解析后的完整 key，找不到返回 None
+    """
+    # 1. 直接匹配（完整 key 或旧格式裸名）
+    if name in models_dict:
+        return name
+
+    # 2. 如果已经包含 @，说明是指定了模式但不存在
+    if MODE_SEPARATOR in name:
+        return None
+
+    # 3. 指定了 default_mode
+    if default_mode:
+        full_key = make_model_key(name, default_mode)
+        if full_key in models_dict:
+            return full_key
+        return None
+
+    # 4. 自动搜索所有已知模式
+    found = []
+    for mode in KNOWN_TRAINING_MODES:
+        full_key = make_model_key(name, mode)
+        if full_key in models_dict:
+            found.append(full_key)
+
+    if len(found) == 1:
+        return found[0]
+    elif len(found) > 1:
+        # 多个模式都存在，优先返回第一个（static），同时 warn
+        print(f"⚠️  模型 '{name}' 在多个训练模式中存在: {found}，使用 {found[0]}")
+        print(f"   如需指定模式，请使用 '{name}@rolling' 或 --training-mode 参数")
+        return found[0]
+
+    return None
+
+
+def resolve_model_keys(names, models_dict, default_mode=None):
+    """批量解析模型名为完整 key
+
+    Args:
+        names: 模型名列表
+        models_dict: 训练记录中的 models dict
+        default_mode: 默认训练模式
+
+    Returns:
+        resolved: list of (original_name, full_key) — full_key 为 None 表示未找到
+    """
+    results = []
+    for name in names:
+        full_key = resolve_model_key(name, models_dict, default_mode)
+        results.append((name, full_key))
+    return results
+
+
+def filter_models_by_mode(models_dict, mode):
+    """按训练模式过滤 models dict
+
+    Args:
+        models_dict: {model_key: record_id}
+        mode: 训练模式 (如 'static', 'rolling'). None 则不过滤
+
+    Returns:
+        dict: 过滤后的 {model_key: record_id}
+    """
+    if mode is None:
+        return models_dict
+    return {
+        k: v for k, v in models_dict.items()
+        if parse_model_key(k)[1] == mode
+    }
+
+
+def strip_mode_from_keys(models_dict):
+    """从 model@mode key 中去掉 @mode 部分，返回 {bare_name: record_id}
+
+    如果去掉 mode 后有重复的 bare_name，后者覆盖前者并 warn。
+
+    Args:
+        models_dict: {model_key: record_id}
+
+    Returns:
+        dict: {bare_name: record_id}
+    """
+    result = {}
+    for key, rid in models_dict.items():
+        bare_name, _ = parse_model_key(key)
+        if bare_name in result:
+            print(f"⚠️  去模式后 key 冲突: '{bare_name}' 出现多次，使用最后一个")
+        result[bare_name] = rid
+    return result
 
 
 # ================= 日期计算 =================
@@ -1060,3 +1206,116 @@ def predict_single_model(model_name, model_info, params, experiment_name,
         traceback.print_exc()
 
     return result
+
+
+# ================= 迁移工具 =================
+def migrate_legacy_records(workspace_dir=None, dry_run=False):
+    """将旧格式的双文件记录迁移为统一格式
+
+    旧格式:
+    - latest_train_records.json (static 训练)
+    - latest_rolling_records.json (rolling 训练)
+
+    新格式:
+    - latest_train_records.json (统一文件, key 为 model@mode)
+
+    Args:
+        workspace_dir: 工作区根目录, None 则使用 ROOT_DIR
+        dry_run: 仅打印计划不实际写入
+
+    Returns:
+        dict: 合并后的记录，dry_run=True 时也返回（但不写入）
+    """
+    if workspace_dir is None:
+        workspace_dir = ROOT_DIR
+
+    static_file = os.path.join(workspace_dir, "latest_train_records.json")
+    rolling_file = os.path.join(workspace_dir, "latest_rolling_records.json")
+
+    static_records = {}
+    rolling_records = {}
+
+    if os.path.exists(static_file):
+        with open(static_file, 'r') as f:
+            static_records = json.load(f)
+    if os.path.exists(rolling_file):
+        with open(rolling_file, 'r') as f:
+            rolling_records = json.load(f)
+
+    if not static_records and not rolling_records:
+        print("⚠️  没有找到任何记录文件，无需迁移")
+        return {}
+
+    # 检查是否已经迁移过（key 中包含 @）
+    static_models = static_records.get('models', {})
+    already_migrated = any(MODE_SEPARATOR in k for k in static_models)
+    if already_migrated:
+        print("ℹ️  记录文件已是新格式，无需迁移")
+        return static_records
+
+    # 构建合并后的 models dict
+    merged_models = {}
+
+    # Static models → model@static
+    for name, rid in static_models.items():
+        new_key = make_model_key(name, 'static')
+        merged_models[new_key] = rid
+
+    # Rolling models → model@rolling
+    rolling_models = rolling_records.get('models', {})
+    for name, rid in rolling_models.items():
+        new_key = make_model_key(name, 'rolling')
+        merged_models[new_key] = rid
+
+    # 合并元数据（以 static 为主，保留 rolling 的 experiment_name）
+    merged = {
+        "experiment_name": static_records.get('experiment_name', ''),
+        "anchor_date": static_records.get('anchor_date',
+                                          rolling_records.get('anchor_date', '')),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "migrated_from": "legacy_dual_file",
+        "models": merged_models,
+    }
+
+    # 如果有 rolling 的 experiment_name，记录在元数据中
+    rolling_exp = rolling_records.get('experiment_name')
+    if rolling_exp:
+        merged["rolling_experiment_name"] = rolling_exp
+
+    # 打印迁移计划
+    print(f"\n{'='*60}")
+    print("📦 训练记录迁移计划")
+    print(f"{'='*60}")
+    print(f"Static 记录 ({len(static_models)} 个模型):")
+    for name, rid in static_models.items():
+        print(f"  {name} → {make_model_key(name, 'static')}  [{rid[:12]}...]")
+    print(f"Rolling 记录 ({len(rolling_models)} 个模型):")
+    for name, rid in rolling_models.items():
+        print(f"  {name} → {make_model_key(name, 'rolling')}  [{rid[:12]}...]")
+    print(f"合并后总计: {len(merged_models)} 个 model@mode 条目")
+
+    if dry_run:
+        print("\n🔍 Dry-run 模式: 不实际写入")
+        return merged
+
+    # 备份旧文件
+    history_dir = os.path.join(workspace_dir, "data", "history")
+    if os.path.exists(static_file):
+        backup_file_with_date(static_file, history_dir=history_dir,
+                              prefix="train_records_pre_migration")
+    if os.path.exists(rolling_file):
+        backup_file_with_date(rolling_file, history_dir=history_dir,
+                              prefix="rolling_records_pre_migration")
+
+    # 写入统一文件
+    with open(static_file, 'w') as f:
+        json.dump(merged, f, indent=4)
+    print(f"\n✅ 统一记录已写入: {static_file}")
+
+    # 删除旧的 rolling 文件
+    if os.path.exists(rolling_file):
+        os.remove(rolling_file)
+        print(f"🗑️  已删除旧文件: {rolling_file}")
+
+    print(f"{'='*60}\n")
+    return merged
