@@ -1,0 +1,48 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Data folders
+data/
+workspaces/
+*.h5
+*.csv
+*.parquet
+*.pkl
+*.npy
+*.npz
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editor and IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+entry_debug.log
+helper_debug.log
+helper_error.log
+test_error.log
+quantpits.egg-info/
+ui/
+docs/
+landing/

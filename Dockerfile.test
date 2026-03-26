@@ -1,0 +1,31 @@
+FROM python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+# Python 3.12-slim doesn't have build tools, but we need them for packages like scipy, qlib
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    cmake \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# Copy dependency files first to utilize Docker layer caching
+COPY pyproject.toml README.md README_zh.md ./
+COPY quantpits/__init__.py ./quantpits/
+
+# Install test dependencies (this layer is cached if pyproject.toml hasn't changed)
+RUN pip install --no-cache-dir -e .[test]
+
+# Copy the rest of the project
+# This step is placed AFTER dependency installation so that code changes
+# do not invalidate the pip install cache. Local data is excluded via .dockerignore
+COPY . .
+
+# Run pytest by default when container starts
+CMD ["pytest", "tests", "--cov=quantpits", "--cov-report=term-missing"]
