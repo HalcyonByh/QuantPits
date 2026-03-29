@@ -381,8 +381,8 @@ def main():
             beta_ret = beta * metrics.get('Benchmark_CAGR', 0)
             
             style_ret = 0.0
-            if 'size' in factor_ann and 'momentum' in factor_ann and 'volatility' in factor_ann:
-                style_ret += exposure.get('Barra_Liquidity_Exp', 0) * factor_ann['size']
+            if 'liquidity' in factor_ann and 'momentum' in factor_ann and 'volatility' in factor_ann:
+                style_ret += exposure.get('Barra_Liquidity_Exp', 0) * factor_ann['liquidity']
                 style_ret += exposure.get('Barra_Momentum_Exp', 0) * factor_ann['momentum']
                 style_ret += exposure.get('Barra_Volatility_Exp', 0) * factor_ann['volatility']
                 
