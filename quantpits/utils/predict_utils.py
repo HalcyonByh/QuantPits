@@ -60,6 +60,9 @@ def load_predictions_from_recorder(
             pred = recorder.load_object("pred.pkl")
             if isinstance(pred, pd.Series):
                 pred = pred.to_frame("score")
+            # 多列 pred (如含 score+label) 只保留 score 列
+            if isinstance(pred, pd.DataFrame) and 'score' in pred.columns and len(pred.columns) > 1:
+                pred = pred[['score']]
             pred.columns = [model_name]
             all_preds.append(pred)
             loaded_models.append(model_name)

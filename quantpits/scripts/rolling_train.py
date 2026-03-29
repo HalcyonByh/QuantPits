@@ -36,6 +36,7 @@ import os
 import sys
 import json
 import argparse
+import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -377,7 +378,7 @@ def train_window_model(model_name, yaml_file, window, params_base,
 
 # ================= 预测拼接 =================
 def concatenate_rolling_predictions(state, model_names, rolling_exp_name,
-                                    combined_exp_name, anchor_date):
+                                    combined_exp_name, anchor_date, extra_preds=None):
     """
     将各 window 的 pred.pkl 拼接成完整时间序列。
 
@@ -399,7 +400,6 @@ def concatenate_rolling_predictions(state, model_names, rolling_exp_name,
     """
     from qlib.workflow import R
     from quantpits.utils.train_utils import ROLLING_PREDICTION_DIR
-    import pandas as pd
 
     print(f"\n{'='*60}")
     print("📦 拼接 Rolling 预测")
@@ -423,6 +423,11 @@ def concatenate_rolling_predictions(state, model_names, rolling_exp_name,
                     experiment_name=rolling_exp_name
                 )
                 pred = rec.load_object("pred.pkl")
+                # 统一为单列 score DataFrame，避免下游 columns 不匹配
+                if isinstance(pred, pd.DataFrame) and 'score' in pred.columns:
+                    pred = pred[['score']]
+                elif isinstance(pred, pd.Series):
+                    pred = pred.to_frame('score')
                 all_preds.append(pred)
                 dates = pred.index.get_level_values('datetime')
                 print(f"    Window {comp['window_idx']}: "
@@ -430,6 +435,20 @@ def concatenate_rolling_predictions(state, model_names, rolling_exp_name,
                       f"{len(pred)} rows")
             except Exception as e:
                 print(f"    Window {comp['window_idx']}: FAILED - {e}")
+
+        if extra_preds and model_name in extra_preds:
+            extra_df = extra_preds[model_name]
+            if extra_df is not None and not extra_df.empty:
+                # 统一为单列 score DataFrame
+                if isinstance(extra_df, pd.Series):
+                    extra_df = extra_df.to_frame('score')
+                elif isinstance(extra_df, pd.DataFrame) and 'score' in extra_df.columns:
+                    extra_df = extra_df[['score']]
+                elif isinstance(extra_df, pd.DataFrame):
+                    extra_df.columns = ['score']
+                all_preds.append(extra_df)
+                dts = extra_df.index.get_level_values('datetime')
+                print(f"    Extra Pred_Only: {dts.min().date()} ~ {dts.max().date()}, {len(extra_df)} rows")
 
         if not all_preds:
             print(f"  [{model_name}] 无有效预测数据")
@@ -497,7 +516,7 @@ def save_rolling_records(combined_records, combined_exp_name, anchor_date):
 
 # ================= 日常预测 =================
 def predict_with_latest_model(model_name, model_info, state,
-                              rolling_exp_name, params_base, anchor_date):
+                              rolling_exp_name, params_base, anchor_date, windows):
     """
     使用最近一个 window 训练的模型对最新数据预测。
 
@@ -514,7 +533,13 @@ def predict_with_latest_model(model_name, model_info, state,
 
     # 取最新 window 的模型
     latest = completions[-1]
-    print(f"  [{model_name}] 加载 Window {latest['window_idx']} 模型进行预测...")
+    widx = latest['window_idx']
+    print(f"  [{model_name}] 加载 Window {widx} 模型进行预测...")
+
+    window = next((w for w in windows if w['window_idx'] == widx), None)
+    if not window:
+        print(f"  [{model_name}] 无法找到对应的 window 数据划分: {widx}")
+        return None
 
     try:
         rec = R.get_recorder(
@@ -527,12 +552,29 @@ def predict_with_latest_model(model_name, model_info, state,
         yaml_file = model_info['yaml_file']
         params = dict(params_base)
         params['anchor_date'] = anchor_date
+        
+        # 补齐基于该 window 的日期范围，以满足 inject_config 检查
+        params['start_time'] = window['train_start']
+        params['end_time'] = window['test_end']
+        params['fit_start_time'] = window['train_start']
+        params['fit_end_time'] = window['train_end']
+        params['valid_start_time'] = window['valid_start']
+        params['valid_end_time'] = window['valid_end']
+        params['test_start_time'] = window['test_start']
+        params['test_end_time'] = window['test_end']
+
         task_config = inject_config(yaml_file, params, model_name=model_name)
 
         dataset_cfg = task_config['task']['dataset']
         dataset = init_instance_by_config(dataset_cfg)
 
         pred = model.predict(dataset=dataset)
+
+        # 统一为单列 score DataFrame，与训练时 SigAnaRecord 保存格式对齐
+        if isinstance(pred, pd.Series):
+            pred = pred.to_frame('score')
+        elif isinstance(pred, pd.DataFrame) and 'score' not in pred.columns:
+            pred.columns = ['score']
 
         print(f"  [{model_name}] 预测完成: Recorder={latest['record_id']}")
 
@@ -828,11 +870,24 @@ def run_daily(args, targets, rolling_cfg):
     else:
         print(f"\n📊 所有 windows 已训练完毕，执行 predict-only...")
 
+        extra_preds = {}
         for model_name, model_info in targets.items():
-            predict_with_latest_model(
+            pred = predict_with_latest_model(
                 model_name, model_info, state,
-                rolling_exp_name, params_base, anchor_date
+                rolling_exp_name, params_base, anchor_date, windows=windows
             )
+            if pred is not None and not pred.empty:
+                extra_preds[model_name] = pred
+
+        if extra_preds:
+            model_names = list(targets.keys())
+            combined_records = concatenate_rolling_predictions(
+                state, model_names, rolling_exp_name, combined_exp_name, anchor_date, extra_preds=extra_preds
+            )
+            if combined_records:
+                save_rolling_records(combined_records, combined_exp_name, anchor_date)
+                if getattr(args, 'backtest', False) is True:
+                    run_combined_backtest(model_names, combined_records, combined_exp_name, params_base)
 
 
 def run_combined_backtest(model_names, combined_records, combined_exp_name, params_base):
@@ -1057,13 +1112,37 @@ def run_predict_only(args, targets, rolling_cfg):
         print("❌ 无 rolling 状态，请先运行 --cold-start")
         return
 
+    # 为 predict-only 解析当前日期下的 windows (保证 latest window 的 test_end 达到 anchor_date)
+    windows = generate_rolling_windows(
+        rolling_start=rolling_cfg['rolling_start'],
+        train_years=rolling_cfg['train_years'],
+        valid_years=rolling_cfg['valid_years'],
+        test_step=rolling_cfg['test_step'],
+        anchor_date=anchor_date,
+    )
+
     rolling_exp_name = f"Rolling_Windows_{freq}"
+    extra_preds = {}
 
     for model_name, model_info in targets.items():
-        predict_with_latest_model(
+        pred = predict_with_latest_model(
             model_name, model_info, state,
-            rolling_exp_name, params_base, anchor_date
+            rolling_exp_name, params_base, anchor_date, windows=windows
         )
+        if pred is not None and not pred.empty:
+            extra_preds[model_name] = pred
+
+    if extra_preds:
+        combined_exp_name = f"Rolling_Combined_{freq}"
+        model_names = list(targets.keys())
+        combined_records = concatenate_rolling_predictions(
+            state, model_names, rolling_exp_name, combined_exp_name, anchor_date, extra_preds=extra_preds
+        )
+        if combined_records:
+            save_rolling_records(combined_records, combined_exp_name, anchor_date)
+            # 允许在 predict-only 后也触发 backtest
+            if getattr(args, 'backtest', False) is True:
+                run_combined_backtest(model_names, combined_records, combined_exp_name, params_base)
 
 
 def main():
