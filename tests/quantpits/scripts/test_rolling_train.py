@@ -568,7 +568,12 @@ class TestFunctionalLogic:
             mock_inject.return_value = {'task': {'dataset': {}}}
             mock_model.predict.return_value = pd.DataFrame({'score': [0.5]})
             
-            res = rt.predict_with_latest_model('m1', {'yaml_file': 'm1.yaml'}, state, 'exp', {'market': 'csi300', 'benchmark': 'csi300'}, '2024-01-01')
+            windows = [{'window_idx': 0, 'train_start': '2020-01-01', 'train_end': '2022-12-31', 
+                        'valid_start': '2023-01-01', 'valid_end': '2023-12-31', 
+                        'test_start': '2024-01-01', 'test_end': '2024-03-31'}]
+            res = rt.predict_with_latest_model('m1', {'yaml_file': 'm1.yaml'}, state, 'exp', 
+                                              {'market': 'csi300', 'benchmark': 'csi300'}, '2024-01-01', 
+                                              windows=windows)
             assert res is not None
             assert len(res) == 1
 
@@ -974,16 +979,25 @@ class TestRunModesExtra:
         rt, _ = mock_env
         args = mock.MagicMock()
         targets = {'m1': {}}
-        cfg = {}
+        cfg = {
+            'rolling_start': '2020-01-01',
+            'train_years': 3,
+            'valid_years': 1,
+            'test_step': '3M'
+        }
         
         with mock.patch('quantpits.utils.env.init_qlib'), \
              mock.patch('rolling_train.get_base_params') as mock_base, \
              mock.patch('rolling_train.RollingState') as mock_state_cls, \
+             mock.patch('rolling_train.generate_rolling_windows') as mock_gen, \
+             mock.patch('rolling_train.concatenate_rolling_predictions') as mock_concat, \
+             mock.patch('rolling_train.save_rolling_records'), \
              mock.patch('rolling_train.predict_with_latest_model') as mock_predict:
             
             mock_base.return_value = {'anchor_date': '2024-01-01', 'freq': 'week'}
             mock_state = mock_state_cls.return_value
             mock_state.anchor_date = '2023-12-31'
+            mock_gen.return_value = []
             
             rt.run_predict_only(args, targets, cfg)
             mock_predict.assert_called_once()
@@ -1110,7 +1124,7 @@ class TestMoreFunctionalLogic:
         rt, _ = mock_env
         state = mock.MagicMock()
         state.get_completed_record_ids.return_value = []
-        res = rt.predict_with_latest_model('m1', {}, state, 'exp', {}, '2024-01-01')
+        res = rt.predict_with_latest_model('m1', {}, state, 'exp', {}, '2024-01-01', windows=[])
         assert res is None
 
     def test_predict_with_latest_model_fails(self, mock_env):
@@ -1121,7 +1135,8 @@ class TestMoreFunctionalLogic:
             rec = mock.MagicMock()
             rec.load_object.side_effect = Exception("Fail")
             mock_r.get_recorder.return_value = rec
-            res = rt.predict_with_latest_model('m1', {'yaml_file':'m1.yaml'}, state, 'exp', {}, '2024-01-01')
+            windows = [{'window_idx': 0}]
+            res = rt.predict_with_latest_model('m1', {'yaml_file':'m1.yaml'}, state, 'exp', {}, '2024-01-01', windows=windows)
             assert res is None
 
 
@@ -1248,15 +1263,27 @@ class TestMoreMainFlows:
         rt, workspace = mock_env
         args = mock.MagicMock()
         targets = {'m1': {'yaml_file': 'm1.yaml'}}
-        cfg = {}
+        cfg = {
+            'rolling_start': '2020-01-01',
+            'train_years': 3,
+            'valid_years': 1,
+            'test_step': '3M'
+        }
         with mock.patch('quantpits.utils.env.init_qlib'), \
              mock.patch('rolling_train.get_base_params', return_value={'anchor_date': '2024-06-01', 'freq': 'w'}), \
              mock.patch('rolling_train.RollingState') as mock_state_cls, \
+             mock.patch('rolling_train.generate_rolling_windows') as mock_gen, \
+             mock.patch('rolling_train.concatenate_rolling_predictions') as mock_concat, \
+             mock.patch('rolling_train.save_rolling_records') as mock_save, \
              mock.patch('rolling_train.predict_with_latest_model', return_value=pd.Series([1.0], index=pd.MultiIndex.from_tuples([(pd.Timestamp('2024-06-01'), 'S1')], names=['datetime', 'instrument']))):
             
             mock_state = mock_state_cls.return_value
             mock_state.anchor_date = '2024-01-01'
+            mock_gen.return_value = [{'window_idx': 0}]
+            
             rt.run_predict_only(args, targets, cfg)
+            assert mock_save.called
+            assert mock_concat.called
 
     def test_run_combined_backtest_exceptions(self, mock_env):
         rt, _ = mock_env
