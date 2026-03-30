@@ -356,6 +356,23 @@ class TestRollingStateExtra:
         state.mark_window_model_done(0, 'm1', 'r1')
         assert state.get_all_completed_windows() == {"0": {"m1": "r1"}}
 
+    def test_get_last_and_remove_window(self, tmp_path):
+        state_file = tmp_path / "state.json"
+        state = RollingState(state_file=str(state_file))
+        state.init_run({}, '2025-01-01', 1)
+        
+        # Empty state
+        assert state.get_last_completed_window_idx() is None
+        assert state.remove_window(0) is False
+
+        # Add windows
+        state.mark_window_model_done(0, 'm1', 'r1')
+        state.mark_window_model_done(1, 'm1', 'r2')
+
+        assert state.get_last_completed_window_idx() == 1
+        assert state.remove_window(1) is True
+        assert state.get_last_completed_window_idx() == 0
+
 
 class TestResolveTargetModels:
     """Test resolve_target_models logic"""
@@ -548,6 +565,29 @@ class TestFunctionalLogic:
             assert res['m1'] == 'combined_r'
             assert mock_r.save_objects.called
 
+    def test_concatenate_rolling_predictions_with_extra_preds(self, mock_env):
+        rt, workspace = mock_env
+        state = mock.MagicMock()
+        state.get_completed_record_ids.return_value = [{'window_idx': 0, 'record_id': 'r0'}]
+        # Pass a mock completions list to emulate actual state output
+        state.get_completed_record_ids.side_effect = lambda m: [{'window_idx': 0, 'record_id': 'r0'}]
+        
+        df0 = pd.DataFrame({'score': [0.1]}, index=pd.MultiIndex.from_tuples([ (pd.Timestamp('2024-01-01'), 'S1')], names=['datetime', 'instrument']))
+        
+        # Extra pred as Series to test conversion
+        extra_series = pd.Series([0.3], index=pd.MultiIndex.from_tuples([ (pd.Timestamp('2024-02-02'), 'S1')], names=['datetime', 'instrument']))
+        
+        with mock.patch('qlib.workflow.R', create=True) as mock_r:
+            r0 = mock.MagicMock()
+            r0.load_object.return_value = df0
+            mock_combined_r = mock.MagicMock(id='combined_r')
+            mock_r.get_recorder.side_effect = [r0, mock_combined_r]
+            
+            res = rt.concatenate_rolling_predictions(state, ['m1'], 'rolling_exp', 'comb_exp', '2024-03-31',
+                                                      windows=[{'window_idx': 0, 'test_start': '2024-01-01', 'test_end': '2024-01-31'}],
+                                                      extra_preds={'m1': extra_series})
+            assert res['m1'] == 'combined_r'
+
     def test_save_rolling_records_real_logic(self, mock_env):
         rt, workspace = mock_env
         combined = {'m1': 'rid1'}
@@ -650,6 +690,9 @@ class TestMainFlows:
             
             mock_base.return_value = {'anchor_date': '2024-02-01', 'freq': 'week'}
             mock_concat.return_value = {'m1': 'rid1'}
+            mock_pred_df = mock.MagicMock()
+            mock_pred_df.empty = False
+            mock_predict.return_value = mock_pred_df
             
             mock_state = mock.MagicMock()
             # Set anchor_date to 2024-03-31 so that current anchor (02-01) <= 03-31
@@ -662,6 +705,26 @@ class TestMainFlows:
             
             rt.run_daily(args, {'m1': {}}, cfg)
             mock_predict.assert_called()
+            mock_concat.assert_called()
+
+    def test_run_daily_training_flow(self, mock_env):
+        rt, _ = mock_env
+        cfg = {'rolling_start': '2020-01-01', 'train_years': 3, 'valid_years': 1, 'test_step': '3M', 'test_step_months': 3}
+        with mock.patch('quantpits.utils.env.init_qlib'), \
+             mock.patch.object(rt, 'get_base_params', return_value={'anchor_date': '2024-02-01', 'freq': 'week'}), \
+             mock.patch.object(rt, 'RollingState') as mock_state_cls, \
+             mock.patch.object(rt, 'train_window_model', return_value={'success': True, 'record_id': 'r1'}), \
+             mock.patch.object(rt, 'concatenate_rolling_predictions', return_value={'m1':'rid1'}), \
+             mock.patch.object(rt, 'save_rolling_records'), \
+             mock.patch.object(rt, 'generate_rolling_windows', return_value=[{'window_idx': 0, 'test_start': '2024-01-01', 'test_end': '2024-03-31'}]):
+            
+            mock_state = mock_state_cls.return_value
+            mock_state.anchor_date = '2024-02-01'
+            mock_state.is_window_model_done.return_value = False
+            
+            args = mock.MagicMock(dry_run=False, backtest=False)
+            rt.run_daily(args, {'m1': {'yaml_file': 'm1.yaml'}}, cfg)
+            rt.train_window_model.assert_called()
 
     def test_main_cold_start(self, mock_env):
         rt, _ = mock_env
@@ -927,6 +990,39 @@ class TestMainFlowsExtended:
             
             rt.main()
             mock_run.assert_called_once()
+
+    def test_main_retrain_last(self, mock_env):
+        rt, _ = mock_env
+        args = mock.MagicMock(show_state=False, clear_state=False, retrain_last=True, resume=False, cold_start=False, merge=False, predict_only=False, backtest_only=False, all_enabled=True)
+        
+        with mock.patch('rolling_train.parse_args', return_value=args), \
+             mock.patch('rolling_train.resolve_target_models', return_value={'m1':{}}), \
+             mock.patch('quantpits.utils.config_loader.load_rolling_config', return_value={'rolling_start': '2020-01-01', 'train_years': 3, 'valid_years': 1, 'test_step': '3M', 'test_step_months': 3}), \
+             mock.patch('rolling_train.RollingState') as mock_state_cls, \
+             mock.patch('rolling_train.run_daily') as mock_run_daily:
+            
+            mock_state = mock_state_cls.return_value
+            mock_state.anchor_date = "2024-01-01"
+            mock_state.get_last_completed_window_idx.return_value = 1
+            
+            rt.main()
+            mock_state.remove_window.assert_called_with(1)
+            mock_run_daily.assert_called_once()
+
+    def test_main_retrain_last_no_state(self, mock_env):
+        rt, capsys = mock_env
+        rt, _ = mock_env
+        args = mock.MagicMock(show_state=False, clear_state=False, retrain_last=True, resume=False, cold_start=False, merge=False, predict_only=False, backtest_only=False, all_enabled=True)
+        
+        with mock.patch('rolling_train.parse_args', return_value=args), \
+             mock.patch('rolling_train.resolve_target_models', return_value={'m1':{}}), \
+             mock.patch('quantpits.utils.config_loader.load_rolling_config', return_value={'rolling_start': '2020-01-01', 'train_years': 3, 'valid_years': 1, 'test_step': '3M', 'test_step_months': 3}), \
+             mock.patch('rolling_train.RollingState') as mock_state_cls:
+            
+            mock_state = mock_state_cls.return_value
+            mock_state.anchor_date = None
+            rt.main()
+            # Should exit before run_daily due to no anchor_date
 
 
 class TestRunModesExtra:
