@@ -549,6 +549,7 @@ def save_rolling_records(combined_records, combined_exp_name, anchor_date):
 
     records = {
         "experiment_name": combined_exp_name,
+        "rolling_experiment_name": combined_exp_name,
         "anchor_date": anchor_date,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "models": rolling_models,

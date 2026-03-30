@@ -104,7 +104,7 @@ def load_predictions(model_name=None, anchor_date=None, record_file=None, combo_
     from qlib.workflow import R
     
     if model_name:
-        from quantpits.utils.train_utils import resolve_model_key
+        from quantpits.utils.train_utils import resolve_model_key, get_experiment_name_for_model
         record_file = record_file or os.path.join(ROOT_DIR, "latest_train_records.json")
         if not os.path.exists(record_file):
             raise FileNotFoundError(f"无法找到训练记录文件: {record_file}")
@@ -117,7 +117,7 @@ def load_predictions(model_name=None, anchor_date=None, record_file=None, combo_
             raise ValueError(f"模型 {model_name} 的训练记录未找到")
         
         record_id = models[full_key]
-        experiment_name = records.get("experiment_name")
+        experiment_name = get_experiment_name_for_model(records, full_key)
         recorder = R.get_recorder(recorder_id=record_id, experiment_name=experiment_name)
         pred_df = recorder.load_object("pred.pkl")
         if isinstance(pred_df, pd.Series):
@@ -338,7 +338,10 @@ def generate_model_opinions(focus_instruments, current_holding_instruments,
                     train_records = json.load(f)
                 record_id = train_records.get('models', {}).get(model_name)
                 if record_id:
-                    experiment_name = train_records.get('experiment_name', 'prod_train')
+                    from quantpits.utils.train_utils import get_experiment_name_for_model
+                    experiment_name = get_experiment_name_for_model(train_records, model_name)
+                    if not experiment_name:
+                        experiment_name = 'prod_train'
                     recorder = R.get_recorder(recorder_id=record_id,
                                               experiment_name=experiment_name)
                     pred_pkl = recorder.load_object('pred.pkl')

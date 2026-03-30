@@ -160,6 +160,7 @@ def run_full_train(args):
 
     current_records = {
         "experiment_name": experiment_name,
+        "static_experiment_name": experiment_name,
         "anchor_date": params['anchor_date'],
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "models": {}
@@ -281,6 +282,7 @@ def run_incremental_train(args, targets):
     # 训练结果收集
     new_records = {
         "experiment_name": experiment_name,
+        "static_experiment_name": experiment_name,
         "anchor_date": params['anchor_date'],
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "models": {}
@@ -428,6 +430,7 @@ def run_predict_only(args, targets):
     # 收集结果
     new_records = {
         "experiment_name": experiment_name,
+        "static_experiment_name": experiment_name,
         "anchor_date": params['anchor_date'],
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "models": {}

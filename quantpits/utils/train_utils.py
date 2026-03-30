@@ -85,6 +85,31 @@ def parse_model_key(key):
     return key, DEFAULT_TRAINING_MODE
 
 
+def get_experiment_name_for_model(records_dict, model_key):
+    """
+    根据模型 key 的 mode 获取对应的 experiment_name。
+    优先读取 JSON 顶层的 `static_experiment_name` / `rolling_experiment_name`，
+    为了向后兼容，如果没找到则回退到 `experiment_name`。
+
+    Args:
+        records_dict: 包含 experiment_name 等字段的记录字典
+        model_key: 模型的复合 key (如 'gru_Alpha158@static')
+
+    Returns:
+        str: 该模型对应的 experiment_name
+    """
+    _, mode = parse_model_key(model_key)
+    
+    # 优先尝试模式特定的 experiment_name
+    mode_exp_key = f"{mode}_experiment_name"
+    if mode_exp_key in records_dict and records_dict[mode_exp_key]:
+        return records_dict[mode_exp_key]
+        
+    # 回退到老的全局 experiment_name
+    return records_dict.get('experiment_name', '')
+
+
+
 def resolve_model_key(name, models_dict, default_mode=None):
     """将裸模型名或完整 key 解析为 models_dict 中实际存在的 key
 
@@ -811,6 +836,8 @@ def merge_train_records(new_records, record_file=None):
     # 构建合并后的记录
     merged = {
         "experiment_name": new_records.get('experiment_name', existing.get('experiment_name', '')),
+        "static_experiment_name": new_records.get('static_experiment_name', existing.get('static_experiment_name', '')),
+        "rolling_experiment_name": new_records.get('rolling_experiment_name', existing.get('rolling_experiment_name', '')),
         "anchor_date": new_records.get('anchor_date', existing.get('anchor_date', '')),
         "timestamp": new_records.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         "last_incremental_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

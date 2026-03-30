@@ -165,8 +165,8 @@ def load_predictions(train_records):
         model_metrics: dict, model_name -> ICIR
     """
     from qlib.workflow import R
+    from quantpits.utils.train_utils import get_experiment_name_for_model
 
-    experiment_name = train_records["experiment_name"]
     models = train_records["models"]
 
     all_preds = []
@@ -175,13 +175,13 @@ def load_predictions(train_records):
     print(f"\n{'='*60}")
     print("Stage 1: 加载模型预测数据")
     print(f"{'='*60}")
-    print(f"Experiment: {experiment_name}")
     print(f"Models ({len(models)}): {list(models.keys())}")
 
     for model_name, record_id in models.items():
         try:
+            model_exp_name = get_experiment_name_for_model(train_records, model_name)
             recorder = R.get_recorder(
-                recorder_id=record_id, experiment_name=experiment_name
+                recorder_id=record_id, experiment_name=model_exp_name
             )
 
             # 加载预测值

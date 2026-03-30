@@ -29,7 +29,7 @@ def load_predictions_from_recorder(
         loaded_models: 成功加载的模型列表
     """
     from qlib.workflow import R
-    experiment_name = train_records.get("experiment_name")
+    from quantpits.utils.train_utils import get_experiment_name_for_model
     models = train_records.get("models", {})
 
     if selected_models is None:
@@ -42,7 +42,6 @@ def load_predictions_from_recorder(
     print(f"\n{'='*60}")
     print("加载模型预测数据...")
     print(f"{'='*60}")
-    print(f"Experiment: {experiment_name}")
     print(f"Models to load ({len(selected_models)}): {selected_models}")
 
     for model_name in selected_models:
@@ -52,8 +51,9 @@ def load_predictions_from_recorder(
             
         record_id = models[model_name]
         try:
+            model_exp_name = get_experiment_name_for_model(train_records, model_name)
             recorder = R.get_recorder(
-                recorder_id=record_id, experiment_name=experiment_name
+                recorder_id=record_id, experiment_name=model_exp_name
             )
 
             # 加载预测值

@@ -414,9 +414,10 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
                                   combo_name=None):
     """风险分析与排行榜生成"""
     from qlib.workflow import R
+    from quantpits.utils.train_utils import get_experiment_name_for_model
 
-    experiment_name = train_records['experiment_name']
-    models = train_records['models']
+    experiment_name = train_records.get('experiment_name', '')
+    models = train_records.get('models', {})
 
     print(f"\n{'='*60}")
     print("Stage 7: 风险分析 & 排行榜")
@@ -515,7 +516,8 @@ def risk_analysis_and_leaderboard(report_df, norm_df, train_records,
         if not record_id:
             continue
         try:
-            recorder = R.get_recorder(recorder_id=record_id, experiment_name=experiment_name)
+            model_exp_name = get_experiment_name_for_model(train_records, model_name)
+            recorder = R.get_recorder(recorder_id=record_id, experiment_name=model_exp_name)
             hist_report = recorder.load_object(report_filename)
             
             # 裁剪历史报告到当前的评价区间
