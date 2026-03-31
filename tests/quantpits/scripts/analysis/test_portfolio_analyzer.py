@@ -53,12 +53,12 @@ def test_calculate_daily_returns():
     assert np.isclose(returns.iloc[1], 0.02)
 
     # Day 2 (2026-01-10): CF is -1000
-    # Ret = (98000 - 102000 - (-1000)) / 102000 = (-4000 + 1000) / 102000 = -3000 / 102000 = -0.0294117
-    assert np.isclose(returns.iloc[2], -3000.0 / 102000.0)
+    # Ret = (98000 - 102000 - (-1000)) / (102000 + (-1000)) = -3000 / 101000
+    assert np.isclose(returns.iloc[2], -3000.0 / 101000.0)
 
 
 def test_calculate_daily_returns_empty():
-    pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame())
+    pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame(), trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
     assert pa.calculate_daily_returns().empty
 
 
@@ -84,7 +84,7 @@ def test_calculate_traditional_metrics():
 
 
 def test_calculate_traditional_metrics_empty():
-    pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame())
+    pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame(), trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
     assert pa.calculate_traditional_metrics() == {}
 
 
@@ -158,10 +158,16 @@ def test_calculate_holding_metrics():
 
     metrics = pa.calculate_holding_metrics()
     
-    # 01-09 SZ000001, 01-10 SZ000001 (Since CASH is excluded)
+    # 01-09 SZ000001, 01-10 SZ000001 (Since CASH is excluded from count)
     # 2 days total. Total count without CASH = 2. Avg count = 1.0 (1 per day)
     assert np.isclose(metrics['Avg_Daily_Holdings_Count'], 1.0)
-    assert np.isclose(metrics['Avg_Top1_Concentration'], 1.0) # 100% since only 1 stock per day
+    
+    # Concentation includes CASH now:
+    # 01-09: 10000 / (10000 + 92000) = 10000 / 102000
+    # 01-10: 10200 / 10200 = 1.0
+    expected_conc = (10000.0 / 102000.0 + 1.0) / 2.0
+    assert np.isclose(metrics['Avg_Top1_Concentration'], expected_conc) 
+    
     assert np.isclose(metrics['Avg_Floating_Return'], 0.01) # (0.0 + 0.02) / 2
     assert np.isclose(metrics['Daily_Holding_Win_Rate'], 0.5) # 0.0 is not > 0, 0.02 is > 0. (0+1)/2
 
@@ -217,7 +223,12 @@ def test_calculate_annualization_basis():
     })
     
     # PortfolioAnalyzer with daily data
-    pa = PortfolioAnalyzer(daily_amount_df=da_df, benchmark_col="SH000300")
+    pa = PortfolioAnalyzer(
+        daily_amount_df=da_df, 
+        trade_log_df=pd.DataFrame(), 
+        holding_log_df=pd.DataFrame(), 
+        benchmark_col="SH000300"
+    )
     metrics = pa.calculate_traditional_metrics()
     
     # Absolute return is based on the full series

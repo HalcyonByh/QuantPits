@@ -72,7 +72,7 @@ class TestSignalCorrelation:
                     corr_mat[i, j] = rho
             daily_corrs.append(corr_mat)
 
-        expected_avg = np.mean(daily_corrs, axis=0)
+        expected_avg = np.nanmean(daily_corrs, axis=0)
 
         for i, mi in enumerate(model_names):
             for j, mj in enumerate(model_names):
@@ -84,7 +84,7 @@ class TestSignalCorrelation:
         ea = EnsembleAnalyzer(preds)
         corr = ea.calculate_signal_correlation()
         for model in preds:
-            assert np.isclose(corr.loc[model, model], 1.0, atol=0.01)
+            assert np.isclose(corr.loc[model, model], 1.0, atol=1e-8)
 
     def test_single_model_empty(self):
         preds, _, _, _ = _make_preds(n_models=1)
@@ -222,7 +222,7 @@ class TestOOSDrift:
         oos_rets = pd.Series([0.01] * 10)
         result = ea.track_oos_vs_is_drift(is_rets, oos_rets)
         assert result["IS_Sharpe"] == 0.0
-        assert result["Decay_Ratio"] == 1.0
+        assert pd.isna(result["Decay_Ratio"])
 
 
 # ============================================================================

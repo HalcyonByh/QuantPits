@@ -31,7 +31,7 @@ class SingleModelAnalyzer:
             
         daily_ic = merged.groupby(level='datetime').apply(_ic).dropna()
         ic_win_rate = (daily_ic > 0).mean() if not daily_ic.empty else 0.0
-        icir = (daily_ic.mean() / daily_ic.std()) if not daily_ic.empty and daily_ic.std() != 0 else 0.0
+        icir = (daily_ic.mean() / daily_ic.std()) if not daily_ic.empty and pd.notna(daily_ic.std()) and daily_ic.std() != 0 else 0.0
         
         return daily_ic, ic_win_rate, icir
         
@@ -115,6 +115,8 @@ class SingleModelAnalyzer:
         ret_col = next_returns_df.columns[0]
         
         def _spread(df):
+            if len(df) < 5:
+                return pd.Series({'Top_Ret': np.nan, 'Bottom_Ret': np.nan, 'Spread': np.nan})
             q_top = df['score'].quantile(1 - top_q)
             q_bot = df['score'].quantile(bottom_q)
             

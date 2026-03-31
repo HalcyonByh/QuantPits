@@ -67,6 +67,8 @@ class EnsembleAnalyzer:
             
         # Standardize scores cross-sectionally per day to simulate equal-weight combo
         def _zscore(df):
+            if len(df) < 2:
+                return pd.Series(np.nan, index=df.index)
             std = df.std()
             std = std.replace(0, 1) # prevent division by zero
             return (df - df.mean()) / std
@@ -82,7 +84,7 @@ class EnsembleAnalyzer:
             ret_col = next_returns_df.columns[0]
             
             def _top_ret(x):
-                if len(x) == 0:
+                if len(x) < 5:
                     return np.nan
                 q = x['score'].quantile(1 - top_q)
                 return x[x['score'] >= q][ret_col].mean()
@@ -121,7 +123,7 @@ class EnsembleAnalyzer:
         is_sharpe = _sharpe(full_backtest_returns_series)
         oos_sharpe = _sharpe(realtime_returns_series)
         
-        decay_ratio = 1.0
+        decay_ratio = np.nan
         if is_sharpe > 0:
             decay_ratio = oos_sharpe / is_sharpe
             
@@ -129,7 +131,7 @@ class EnsembleAnalyzer:
             'IS_Sharpe': is_sharpe,
             'OOS_Sharpe': oos_sharpe,
             'Decay_Ratio': decay_ratio,
-            'Warning': "Strong Warning: Sharpe dropped > 50%" if decay_ratio < 0.5 else "OK"
+            'Warning': "Strong Warning: Sharpe dropped > 50%" if pd.notna(decay_ratio) and decay_ratio < 0.5 else "OK"
         }
 
     def calculate_ensemble_ic_metrics(self, next_returns_df, top_k=22, top_q=0.1, bottom_q=0.1):
@@ -149,6 +151,8 @@ class EnsembleAnalyzer:
             return {}
             
         def _zscore(df):
+            if len(df) < 2:
+                return pd.Series(np.nan, index=df.index)
             std = df.std()
             std = std.replace(0, 1) # prevent division by zero
             return (df - df.mean()) / std

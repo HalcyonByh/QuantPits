@@ -77,8 +77,9 @@ class PortfolioAnalyzer:
                 flow = df['资金发生数'].fillna(0).astype('float')
                 
             prev_nav = nav.shift(1)
-            # Ret = (NAV(t) - NAV(t-1) - CF(t)) / NAV(t-1)
-            ret = (nav - prev_nav - flow) / prev_nav
+            # Ret = (NAV(t) - NAV(t-1) - CF(t)) / (NAV(t-1) + CF(t))
+            # 采用“资金发生于期初并参与全天交易”口径 (Beginning of Day CF assumption)
+            ret = (nav - prev_nav - flow) / (prev_nav + flow)
             ret = ret.fillna(0)
             
             # Now filter the dates returning only what the user requested
@@ -176,14 +177,31 @@ class PortfolioAnalyzer:
         sharpe = ((returns.mean() - rf_daily) / returns.std()) * np.sqrt(self.periods_per_year) if returns.std() != 0 else 0
         calmar = cagr / abs(max_dd) if max_dd < 0 and max_dd != 0 else np.nan
         
-        downside = returns[returns < 0]
-        sortino = ((returns.mean() - rf_daily) / downside.std()) * np.sqrt(self.periods_per_year) if not downside.empty and downside.std() != 0 else 0
+        downside_dev = np.sqrt(np.mean(np.minimum(0, returns)**2))
+        sortino = ((returns.mean() - rf_daily) / downside_dev) * np.sqrt(self.periods_per_year) if downside_dev != 0 else 0
         
         win_rate = (returns > 0).mean()
         
-        gross_profit = returns[returns > 0].sum()
-        gross_loss = abs(returns[returns < 0].sum())
-        profit_factor = (gross_profit / gross_loss) if gross_loss != 0 else np.nan
+        # Compute exact daily PnL for Profit Factor
+        nav_col = '收盘价值' if '收盘价值' in self.daily_amount.columns else '当日结存'
+        if nav_col in self.daily_amount.columns:
+            nav = self.daily_amount[nav_col].astype('float')
+            flow = pd.Series(0, index=nav.index)
+            if 'CASHFLOW' in self.daily_amount.columns: flow = self.daily_amount['CASHFLOW'].fillna(0).astype('float')
+            elif '今日出入金' in self.daily_amount.columns: flow = self.daily_amount['今日出入金'].fillna(0).astype('float')
+            elif '资金发生数' in self.daily_amount.columns: flow = self.daily_amount['资金发生数'].fillna(0).astype('float')
+            
+            nav_aligned = nav.loc[returns.index]
+            flow_aligned = flow.loc[returns.index]
+            prev_nav_aligned = nav.shift(1).loc[returns.index]
+            daily_pnl = nav_aligned - prev_nav_aligned - flow_aligned
+            gross_profit = daily_pnl[daily_pnl > 0].sum()
+            gross_loss = abs(daily_pnl[daily_pnl < 0].sum())
+        else:
+            gross_profit = returns[returns > 0].sum()
+            gross_loss = abs(returns[returns < 0].sum())
+            
+        profit_factor = float(gross_profit / gross_loss) if gross_loss != 0 else np.nan
         
         avg_win = returns[returns > 0].mean() if not returns[returns > 0].empty else 0
         avg_loss = abs(returns[returns < 0].mean()) if not returns[returns < 0].empty else 1e-9
@@ -216,9 +234,13 @@ class PortfolioAnalyzer:
                 daily_trade = t_log.groupby('成交日期')['成交金额'].sum()
                 # filter the self.daily_amount to ONLY valid dates 
                 # returns is already filtered, so we can use its index
-                daily_nav = self.daily_amount.loc[returns.index, nav_col].astype(float)
+                full_nav = self.daily_amount[nav_col].astype(float)
+                # Use Average NAV: (NAV_t + NAV_{t-1}) / 2
+                avg_nav = (full_nav + full_nav.shift(1).fillna(full_nav)) / 2
+                daily_avg_nav = avg_nav.loc[returns.index]
+                
                 # align indices
-                aligned = pd.concat([daily_nav, daily_trade], axis=1).fillna(0)
+                aligned = pd.concat([daily_avg_nav, daily_trade], axis=1).fillna(0)
                 aligned.columns = ['NAV', 'Trade_Amount']
                 # Avoid div by zero
                 aligned['NAV'] = aligned['NAV'].replace(0, 1e-9)
@@ -272,10 +294,8 @@ class PortfolioAnalyzer:
             market_close = self.daily_amount[self.benchmark_col].astype(float)
             # align to our returns index specifically
             market_close = market_close.loc[returns.index].dropna()
-            if market_close.abs().max() < 2.0:
-                market_return = market_close
-            else:
-                market_return = market_close.pct_change().fillna(0)
+            # market_close is definitively a NAV series since __init__ converts it
+            market_return = market_close.pct_change().fillna(0)
             aligned = pd.concat([returns, market_return], axis=1).dropna()
             aligned.columns = ['Portfolio', 'Market']
         else:
@@ -392,10 +412,8 @@ class PortfolioAnalyzer:
         if self.benchmark_col in self.daily_amount.columns:
             market_close = self.daily_amount[self.benchmark_col].astype(float)
             market_close = market_close.loc[returns.index].dropna()
-            if market_close.abs().max() < 2.0:
-                market_return = market_close
-            else:
-                market_return = market_close.pct_change().fillna(0)
+            # market_close is definitively a NAV series
+            market_return = market_close.pct_change().fillna(0)
         else:
             market_return = features.groupby('datetime')['ret'].mean()
             
@@ -430,6 +448,9 @@ class PortfolioAnalyzer:
         if getattr(self, 'holding_log', None) is None or self.holding_log.empty:
             return {}
             
+        # Cache full portfolio daily NAVs (including CASH) for accurate concentration denominators
+        full_daily_navs = self.holding_log.groupby('成交日期')['收盘价值'].sum()
+        
         # Exclude CASH
         df = self.holding_log[self.holding_log['证券代码'] != 'CASH'].copy()
         if df.empty:
@@ -442,9 +463,10 @@ class PortfolioAnalyzer:
         daily_count = daily_groups.size()
         avg_count = float(daily_count.mean())
         
-        # 2. Avg top 1 concentration
+        # 2. Avg top 1 concentration (against total portfolio NAV including CASH)
         def top1_conc(g):
-            total_val = g['收盘价值'].sum()
+            date = g.name
+            total_val = full_daily_navs.get(date, g['收盘价值'].sum())
             if total_val == 0: return 0
             max_val = g['收盘价值'].max()
             return max_val / total_val

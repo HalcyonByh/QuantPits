@@ -58,9 +58,9 @@ def _build_nav_series(n=50, daily_ret=0.001, cashflows=None, seed=42):
 
 
 def _expected_returns_from_nav(nav, cf):
-    """Independently compute daily returns: (NAV(t) - NAV(t-1) - CF(t)) / NAV(t-1)."""
+    """Independently compute daily returns: (NAV(t) - NAV(t-1) - CF(t)) / (NAV(t-1) + CF(t))."""
     prev = np.roll(nav, 1)
-    ret = (nav - prev - cf) / prev
+    ret = (nav - prev - cf) / (prev + cf)
     ret[0] = 0.0  # first day is NaN → fillna(0)
     return ret
 
@@ -103,7 +103,7 @@ class TestDailyReturns:
         assert returns.index.max() <= pd.Timestamp("2025-01-20")
 
     def test_empty(self):
-        pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame())
+        pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame(), trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
         assert pa.calculate_daily_returns().empty
 
 
@@ -225,8 +225,8 @@ class TestTraditionalMetrics:
         pa, rets, _, _, _ = setup
         metrics = pa.calculate_traditional_metrics()
         rf_daily = 0.0135 / 252
-        downside = rets[rets < 0]
-        expected_sortino = ((np.mean(rets) - rf_daily) / np.std(downside, ddof=1)) * np.sqrt(252)
+        downside_dev = np.sqrt(np.mean(np.minimum(0, rets)**2))
+        expected_sortino = ((np.mean(rets) - rf_daily) / downside_dev) * np.sqrt(252)
         assert np.isclose(metrics["Sortino"], expected_sortino, atol=1e-10)
 
     def test_max_drawdown(self, setup):
@@ -255,8 +255,11 @@ class TestTraditionalMetrics:
         expected_win_rate = (rets > 0).mean()
         assert np.isclose(metrics["Realized_Trade_Win_Rate"], expected_win_rate, atol=1e-10)
 
-        gross_profit = rets[rets > 0].sum()
-        gross_loss = abs(rets[rets < 0].sum())
+        nav = pd.Series(pa.daily_amount['收盘价值'].values)
+        daily_pnl = nav - nav.shift(1).fillna(nav)
+        
+        gross_profit = daily_pnl[daily_pnl > 0].sum()
+        gross_loss = abs(daily_pnl[daily_pnl < 0].sum())
         expected_pf = gross_profit / gross_loss
         assert np.isclose(metrics["Profit_Factor"], expected_pf, atol=1e-10)
 
@@ -483,16 +486,13 @@ class TestFactorExposure:
         with patch('quantpits.scripts.analysis.portfolio_analyzer.load_market_config', return_value=("csi300", "SH000300")):
             result = pa.calculate_factor_exposure()
 
-        # Independent: after constructor, CSI300 is cumprod NAV near 1.0
-        # factor_exposure sees abs().max() < 2.0 → uses values as-is (market_return)
+        # Independent: after constructor, CSI300 is cumprod NAV
+        # downstream code now always takes pct_change directly, ignoring < 2.0 check
         actual_rets = pa.calculate_daily_returns()
         internal_bench = pa.daily_amount["CSI300"].astype(float)
         internal_bench = internal_bench.loc[actual_rets.index].dropna()
 
-        if internal_bench.abs().max() < 2.0:
-            market_ret = internal_bench
-        else:
-            market_ret = internal_bench.pct_change().fillna(0)
+        market_ret = internal_bench.pct_change().fillna(0)
 
         aligned = pd.concat([actual_rets, market_ret], axis=1).dropna()
         aligned.columns = ["Portfolio", "Market"]
@@ -633,8 +633,8 @@ class TestHoldingMetrics:
         # Day 1: 2 stocks (excl CASH), Day 2: 1 stock → avg = 1.5
         assert np.isclose(m["Avg_Daily_Holdings_Count"], 1.5, atol=1e-10)
 
-        # Top1 concentration: Day1 = 12000/(8000+12000)=0.6, Day2 = 15000/15000=1.0 → avg = 0.8
-        assert np.isclose(m["Avg_Top1_Concentration"], 0.8, atol=1e-10)
+        # Top1 concentration: Day1 = 12000/100000=0.12, Day2 = 15000/100000=0.15 → avg = 0.135
+        assert np.isclose(m["Avg_Top1_Concentration"], 0.135, atol=1e-10)
 
         # Avg floating return: (0.05, -0.02, 0.10) / 3
         expected_avg_float = (0.05 + (-0.02) + 0.10) / 3
@@ -686,7 +686,11 @@ class TestTurnover:
         # Wait, need to check: trade dates and NAV dates must align after concat
         # The trade on 01-03 maps to NAV of the same date in returns.index
         returns = pa.calculate_daily_returns()
-        daily_nav = pa.daily_amount.loc[returns.index, "收盘价值"].astype(float)
+        full_nav = pa.daily_amount["收盘价值"].astype(float)
+        # Use Average NAV
+        avg_nav = (full_nav + full_nav.shift(1).fillna(full_nav)) / 2
+        daily_nav = avg_nav.loc[returns.index]
+        
         daily_trade = tl.groupby("成交日期")["成交金额"].sum()
         aligned = pd.concat([daily_nav, daily_trade], axis=1).fillna(0)
         aligned.columns = ["NAV", "Trade_Amount"]
@@ -703,7 +707,7 @@ class TestTurnover:
 
 class TestEdgeCases:
     def test_empty_dataframes(self):
-        pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame())
+        pa = PortfolioAnalyzer(daily_amount_df=pd.DataFrame(), trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
         assert pa.calculate_daily_returns().empty
         assert pa.calculate_traditional_metrics() == {}
 
@@ -740,8 +744,8 @@ class TestEdgeCases:
         assert m["CAGR"] < 0
         assert m["Max_Drawdown"] < 0
         assert m["Sharpe"] < 0
-        # Sortino should be 0 because all returns are negative → downside_std is defined
-        # but mean - rf is negative, so sortino is negative
+        # Because downside deviation is cleanly defined around target=0, and numerator is negative,
+        # Sortino should definitely be negative.
         assert m["Sortino"] < 0
         assert m["Realized_Trade_Win_Rate"] == 0.0
 

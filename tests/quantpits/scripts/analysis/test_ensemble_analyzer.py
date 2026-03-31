@@ -93,7 +93,7 @@ def test_oos_vs_is_drift_zero_is_sharpe():
     oos_returns = pd.Series([0.01] * 10)
     result = ea.track_oos_vs_is_drift(is_returns, oos_returns)
     assert result["IS_Sharpe"] == 0.0
-    assert result["Decay_Ratio"] == 1.0  # When IS=0, default ratio should be 1
+    assert pd.isna(result["Decay_Ratio"])  # When IS=0, ratio is undefined (NaN)
 
 
 # ── Ensemble IC Metrics ──────────────────────────────────────────────────
