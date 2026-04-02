@@ -320,6 +320,18 @@ class TestTraditionalMetrics:
         assert np.isclose(metrics["Tracking_Error"], expected_te, atol=1e-10)
         assert np.isclose(metrics["Information_Ratio_(Arithmetic)"], expected_ir, atol=1e-10)
 
+    def test_tracking_error_and_ir_log(self, setup):
+        pa, rets, bench_rets, bench_nav, n_intervals = setup
+        metrics = pa.calculate_traditional_metrics()
+
+        # Log-based active returns: ln(1+Rp) - ln(1+Rb)
+        log_active_ret = np.log((1 + rets) / (1 + bench_rets))
+        expected_te_geo = np.std(log_active_ret, ddof=1) * np.sqrt(252)
+        expected_ir_log = (np.mean(log_active_ret) * 252) / expected_te_geo
+
+        assert np.isclose(metrics["Tracking_Error_(Geometric)"], expected_te_geo, atol=1e-10)
+        assert np.isclose(metrics["Information_Ratio_(Log_Based)"], expected_ir_log, atol=1e-10)
+
     def test_time_under_water(self, setup):
         pa, rets, _, _, _ = setup
         metrics = pa.calculate_traditional_metrics()

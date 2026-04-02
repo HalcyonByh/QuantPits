@@ -154,7 +154,8 @@ class PortfolioAnalyzer:
         excess_cagr_calendar = np.nan
         tracking_error = np.nan
         information_ratio_arithmetic = np.nan
-        information_ratio_geometric = np.nan
+        information_ratio_log = np.nan
+        tracking_error_geometric = np.nan
         annualized_active_return_arithmetic = np.nan
         if self.benchmark_col in self.daily_amount.columns:
             market_close = self.daily_amount[self.benchmark_col].astype(float)
@@ -184,8 +185,17 @@ class PortfolioAnalyzer:
                     annualized_active_return_arithmetic = float(active_return_daily.mean() * self.periods_per_year)
                     # IR (Arithmetic) = annualized arithmetic mean of daily active returns / tracking error
                     information_ratio_arithmetic = float(annualized_active_return_arithmetic / tracking_error)
-                    # IR (Geometric) = geometric excess return (CAGR) / tracking error
-                    information_ratio_geometric = float(excess_cagr_252 / tracking_error)
+                    
+                    # IR (Log-Based) = annualized mean of log-active-returns / geometric tracking error
+                    # This resolves the dimension mismatch between CAGR and arithmetic tracking error.
+                    log_active_ret = np.log((1 + returns) / (1 + bench_ret))
+                    ann_log_active_ret = float(log_active_ret.mean() * self.periods_per_year)
+                    tracking_error_geometric = float(log_active_ret.std() * np.sqrt(self.periods_per_year))
+                    
+                    if tracking_error_geometric != 0 and not pd.isna(tracking_error_geometric):
+                        information_ratio_log = float(ann_log_active_ret / tracking_error_geometric)
+                    else:
+                        information_ratio_log = np.nan
                     
                 # Calculate Benchmark Metrics
                 bench_rolling_max = bench_cum.cummax()
@@ -393,7 +403,8 @@ class PortfolioAnalyzer:
             'Calmar': float(calmar),
             'Benchmark_Calmar': float(benchmark_calmar),
             'Information_Ratio_(Arithmetic)': float(information_ratio_arithmetic),
-            'Information_Ratio_(Geometric_252)': float(information_ratio_geometric),
+            'Information_Ratio_(Log_Based)': float(information_ratio_log),
+            'Tracking_Error_(Geometric)': float(tracking_error_geometric),
             'Annualized_Active_Return_(Arithmetic)': float(annualized_active_return_arithmetic),
             'Max_Drawdown': float(max_dd),
             'Benchmark_Max_Drawdown': float(benchmark_max_dd),
