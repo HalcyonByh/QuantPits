@@ -213,6 +213,14 @@ class PortfolioAnalyzer:
                 benchmark_max_tuw = float(bench_under_water_lengths.max()) if not bench_under_water_lengths.empty else 0
                 
                 bench_under_water_only = bench_under_water_lengths[bench_under_water_lengths > 0]
+                
+                # EXCLUDE the final block for the AVERAGE calculation if it is unfinished 
+                # (i.e. the benchmark is still in a drawdown at the end of the timeseries)
+                if len(bench_is_under_water) > 0 and bench_is_under_water.iloc[-1]:
+                    bench_last_block_id = bench_under_water_blocks.iloc[-1]
+                    if bench_last_block_id in bench_under_water_only.index:
+                        bench_under_water_only = bench_under_water_only[bench_under_water_only.index != bench_last_block_id]
+                        
                 benchmark_avg_tuw = float(bench_under_water_only.mean()) if not bench_under_water_only.empty else 0
         
 

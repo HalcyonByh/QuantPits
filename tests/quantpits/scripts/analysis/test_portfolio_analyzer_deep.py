@@ -332,26 +332,72 @@ class TestTraditionalMetrics:
         assert np.isclose(metrics["Tracking_Error_(Geometric)"], expected_te_geo, atol=1e-10)
         assert np.isclose(metrics["Information_Ratio_(Log_Based)"], expected_ir_log, atol=1e-10)
 
-    def test_time_under_water(self, setup):
-        pa, rets, _, _, _ = setup
+    def test_time_under_water_unfinished(self):
+        """Verify Max/Avg TUW for portfolio, specifically handling unfinished drawdowns at the end."""
+        # Day 0: 100
+        # Day 1: 101
+        # Day 2: 102 (Peak)
+        # Day 3: 98 (UW length 1)
+        # Day 4: 99 (Still UW, length 2, end)
+        dates = pd.bdate_range("2025-01-01", periods=5)
+        da = pd.DataFrame({
+            "成交日期": dates,
+            "收盘价值": [100.0, 101.0, 102.0, 98.0, 99.0],
+            "CASHFLOW": 0.0,
+            "CSI300": 3500.0 # Constant
+        })
+        pa = PortfolioAnalyzer(daily_amount_df=da, trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
+        
         metrics = pa.calculate_traditional_metrics()
-        cum = pd.Series(np.cumprod(1 + rets))
-        running_max = cum.cummax()
-        dd = cum / running_max - 1
+        
+        # Max TUW = 2 (Days 3 and 4)
+        # Avg TUW = 0 (block is unfinished)
+        assert np.isclose(metrics["Max_Time_Under_Water_Days"], 2.0, atol=1e-10)
+        assert np.isclose(metrics["Avg_Time_Under_Water_Days"], 0.0, atol=1e-10)
 
-        is_uw = dd < 0
-        blocks = is_uw.ne(is_uw.shift()).cumsum()
-        lengths = is_uw.groupby(blocks).sum()
-        expected_max_tuw = float(lengths.max())
-        uw_only = lengths[lengths > 0]
-        if len(is_uw) > 0 and is_uw.iloc[-1]:
-            last_block_id = blocks.iloc[-1]
-            if last_block_id in uw_only.index:
-                uw_only = uw_only[uw_only.index != last_block_id]
-        expected_avg_tuw = float(uw_only.mean()) if not uw_only.empty else 0
+        # Finished + Unfinished case
+        # NAV: 100, 101, 98, 102, 97 (Finished 101->98->102, Unfinished 102->97)
+        da2 = pd.DataFrame({
+            "成交日期": pd.bdate_range("2025-01-01", periods=5),
+            "收盘价值": [100.0, 101.0, 98.0, 102.0, 97.0],
+            "CASHFLOW": 0.0,
+            "CSI300": 3500.0
+        })
+        pa2 = PortfolioAnalyzer(daily_amount_df=da2, trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
+        metrics2 = pa2.calculate_traditional_metrics()
+        
+        # Max TUW = 1
+        # Avg TUW = 1.0
+        assert np.isclose(metrics2["Max_Time_Under_Water_Days"], 1.0, atol=1e-10)
+        assert np.isclose(metrics2["Avg_Time_Under_Water_Days"], 1.0, atol=1e-10)
 
-        assert np.isclose(metrics["Max_Time_Under_Water_Days"], expected_max_tuw, atol=1e-10)
-        assert np.isclose(metrics["Avg_Time_Under_Water_Days"], expected_avg_tuw, atol=1e-10)
+    def test_benchmark_time_under_water_unfinished(self):
+        """Verify Max/Avg TUW for benchmark specifically handling unfinished drawdowns at the end."""
+        dates = pd.bdate_range("2025-01-01", periods=6)
+        da = pd.DataFrame({
+            "成交日期": dates,
+            "收盘价值": [1000] * 6,
+            "CASHFLOW": 0.0,
+            "CSI300": [100.0, 101.0, 102.0, 98.0, 99.0, 97.0],
+        })
+        pa = PortfolioAnalyzer(daily_amount_df=da, trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
+        metrics = pa.calculate_traditional_metrics()
+        
+        # Bench is UW for last 3 days
+        assert np.isclose(metrics["Benchmark_Max_Time_Under_Water_Days"], 3.0, atol=1e-10)
+        assert np.isclose(metrics["Benchmark_Avg_Time_Under_Water_Days"], 0.0, atol=1e-10)
+
+        da2 = pd.DataFrame({
+            "成交日期": pd.bdate_range("2025-01-01", periods=5),
+            "收盘价值": [1000] * 5,
+            "CASHFLOW": 0.0,
+            "CSI300": [100.0, 101.0, 98.0, 102.0, 97.0],
+        })
+        pa2 = PortfolioAnalyzer(daily_amount_df=da2, trade_log_df=pd.DataFrame(), holding_log_df=pd.DataFrame())
+        metrics2 = pa2.calculate_traditional_metrics()
+        
+        assert np.isclose(metrics2["Benchmark_Max_Time_Under_Water_Days"], 1.0, atol=1e-10)
+        assert np.isclose(metrics2["Benchmark_Avg_Time_Under_Water_Days"], 1.0, atol=1e-10)
 
     def test_calendar_cagr_uses_nav_date(self):
         """Calendar CAGR should use the first NAV date (base of first return)
