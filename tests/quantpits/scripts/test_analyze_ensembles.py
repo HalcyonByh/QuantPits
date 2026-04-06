@@ -322,3 +322,146 @@ def test_generate_summary_md(mock_env, tmp_path):
     content = open(summary_path).read()
     assert "2026-04-03" in content
     assert "brute_force_ensemble" in content
+
+def test_exceptions_and_edge_cases(mock_env, tmp_path):
+    analyze, _ = mock_env
+    
+    # Test exceptions in generate_is_visualizations_and_report
+    df = pd.DataFrame({"models": ["a", "b"], "n_models": [1, 2], "Ann_Excess": [0.1, 0.2], "Max_DD": [-0.1, -0.2], "Calmar": [1, 2]})
+    with patch("quantpits.scripts.analyze_ensembles.plt.subplots", side_effect=Exception("plot error")):
+        analyze.generate_is_visualizations_and_report(df, str(tmp_path), "2020", top_n=2)
+        
+    with patch("quantpits.scripts.analyze_ensembles.pd.DataFrame.sort_values", side_effect=Exception("df error")):
+        analyze.generate_is_visualizations_and_report(df, str(tmp_path), "2020", top_n=2)
+
+    with patch("quantpits.scripts.analyze_ensembles.pd.merge", side_effect=Exception("corr error")):
+        corr_path = tmp_path / "corr.csv"
+        pd.DataFrame({"a": [1]}).to_csv(corr_path)
+        analyze.generate_is_visualizations_and_report(df, str(tmp_path), "2020", top_n=2, corr_file=str(corr_path))
+        
+    with patch("quantpits.scripts.analyze_ensembles.linkage", side_effect=Exception("clustering error")):
+        analyze.generate_dendrogram(str(tmp_path), corr_file=str(corr_path))
+
+    with patch("quantpits.scripts.analyze_ensembles.plt.subplots", side_effect=Exception("plot error")):
+        oos_df = pd.DataFrame({"Pool_Sources": ["A"], "Ann_Excess": [0.1], "Max_DD": [-0.1]})
+        analyze.generate_oos_visualizations(oos_df, str(tmp_path))
+
+def test_generate_summary_md_long_names(mock_env, tmp_path):
+    analyze, _ = mock_env
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext(base_dir=str(tmp_path), script_name="brute", anchor_date="2020")
+    ctx.ensure_dirs()
+    
+    meta = {"anchor_date": "2020"}
+    df = pd.DataFrame({
+        "models": ["m" * 100], "n_models": [1], "Ann_Excess": [0.1], "Max_DD": [-0.1], "Calmar": [1]
+    })
+    oos_df = pd.DataFrame({
+        "models": ["m" * 100], "Ann_Excess": [0.1], "Max_DD": [-0.1], "Pool_Sources": ["test"], "IS_Ann_Excess": [0.1]
+    })
+    analyze.generate_summary_md(ctx, meta, df, oos_df)
+    assert os.path.exists(ctx.run_path("summary.md"))
+
+def test_is_results_csv_legacy(mock_env, tmp_path):
+    analyze, _ = mock_env
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext(base_dir=str(tmp_path), script_name="test", anchor_date="2020")
+    ctx.ensure_dirs()
+    
+    pd.DataFrame().to_csv(os.path.join(ctx.is_dir, "minentropy_results_2020.csv"))
+    res = analyze._find_is_results_csv(ctx, {"anchor_date": "2020", "script_used": "minentropy"})
+    assert res is not None
+    assert res.endswith("minentropy_results_2020.csv")
+
+def test_missing_data_sys_exits(mock_env, tmp_path):
+    analyze, workspace = mock_env
+    meta_path = tmp_path / "meta.json"
+    with open(meta_path, "w") as f:
+        json.dump({"anchor_date": "2020", "script_used": "x", "freq": "day", "record_file": "missing.json", "oos_start_date": "2020-01-01", "oos_end_date": "2020-01-02"}, f)
+    
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext.from_metadata(str(meta_path))
+    ctx.ensure_dirs()
+    pd.DataFrame({"models": ["a", "b"], "Ann_Excess": [0.1, 0.2], "Calmar": [1, 2], "Max_DD": [-0.1, -0.2], "n_models": [1, 2], "Ann_Ret": [0.1, 0.2]}).to_csv(os.path.join(ctx.is_dir, "brute_force_results_2020.csv"))
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--metadata', str(meta_path)]):
+        with pytest.raises(SystemExit):
+            analyze.main()
+
+def test_empty_oos_results_early_return(mock_env, tmp_path):
+    analyze, workspace = mock_env
+    meta_path = tmp_path / "meta.json"
+    rec_path = tmp_path / "rec.json"
+    with open(meta_path, "w") as f:
+        json.dump({"anchor_date": "2020", "script_used": "x", "freq": "day", "record_file": str(rec_path), "oos_start_date": "2020-01-01", "oos_end_date": "2020-01-02"}, f)
+    with open(rec_path, "w") as f:
+        json.dump({}, f)
+        
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext.from_metadata(str(meta_path))
+    ctx.ensure_dirs()    
+    pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1], "Ann_Ret": [0.1], "Calmar": [1], "Max_DD": [0], "n_models": [1]}).to_csv(os.path.join(ctx.is_dir, "brute_force_results_2020.csv"))
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--metadata', str(meta_path)]):
+        with patch('quantpits.utils.config_loader.load_workspace_config', return_value={}):
+            idx = pd.MultiIndex.from_tuples([(pd.Timestamp("2020-01-01"),"A")], names=["datetime", "instrument"])
+            norm_df = pd.DataFrame({"m1":[0.5]}, index=idx)
+            with patch('quantpits.utils.predict_utils.load_predictions_from_recorder', return_value=(norm_df, None, None)):
+                with patch('quantpits.scripts.analyze_ensembles.run_single_backtest_oos', return_value=None):
+                    with patch('quantpits.scripts.analyze_ensembles.Exchange'):
+                        analyze.main()
+
+def test_max_plot_points(mock_env, tmp_path):
+    analyze, _ = mock_env
+    df = pd.DataFrame({
+        "models": ["m1"] * 50001,
+        "n_models": [2] * 50001,
+        "Ann_Excess": [0.1] * 50001,
+        "Max_DD": [-0.1] * 50001,
+        "Calmar": [1] * 50001,
+        "avg_corr": [np.nan] * 50001
+    })
+    with patch("quantpits.scripts.analyze_ensembles.plt.savefig"):
+        analyze.generate_is_visualizations_and_report(df, str(tmp_path), "2020", top_n=2)
+
+def test_main_training_mode_empty(mock_env, tmp_path):
+    analyze, _ = mock_env
+    meta_path = tmp_path / "meta_filter.json"
+    with open(meta_path, "w") as f:
+        json.dump({
+            "anchor_date": "2020", "script_used": "brute", "freq": "day",
+            "record_file": "none", "oos_start_date": "none", "oos_end_date": "none"
+        }, f)
+    
+    csv_path = tmp_path / "brute_force_results_2020.csv"
+    pd.DataFrame({"models": ["m1@static"], "Ann_Excess": [0.1], "Ann_Ret": [0.1], "Calmar": [1], "Max_DD": [-0.1], "n_models": [1]}).to_csv(csv_path, index=False)
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--metadata', str(meta_path), '--training-mode', 'nonexistent']):
+        with pytest.raises(SystemExit):
+            analyze.main()
+
+def test_oos_norm_df_empty_exits(mock_env, tmp_path):
+    analyze, workspace = mock_env
+    meta_path = tmp_path / "meta.json"
+    rec_path = tmp_path / "rec.json"
+    with open(meta_path, "w") as f:
+        json.dump({"anchor_date": "2020", "script_used": "x", "freq": "day", "record_file": str(rec_path), "oos_start_date": "2021-01-01", "oos_end_date": "2021-01-02"}, f)
+    with open(rec_path, "w") as f:
+        json.dump({}, f)
+        
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext.from_metadata(str(meta_path))
+    ctx.ensure_dirs()
+    pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1], "Ann_Ret": [0.1], "Calmar": [1], "Max_DD": [0], "n_models": [1]}).to_csv(os.path.join(ctx.is_dir, "brute_force_results_2020.csv"))
+    
+    import sys
+    with patch.object(sys, 'argv', ['script.py', '--metadata', str(meta_path)]):
+        with patch('quantpits.utils.config_loader.load_workspace_config', return_value={}):
+            idx = pd.MultiIndex.from_tuples([(pd.Timestamp("2020-01-01"),"A")], names=["datetime", "instrument"])
+            norm_df = pd.DataFrame({"m1":[0.5]}, index=idx)
+            with patch('quantpits.utils.predict_utils.load_predictions_from_recorder', return_value=(norm_df, None, None)):
+                with pytest.raises(SystemExit):
+                    analyze.main()

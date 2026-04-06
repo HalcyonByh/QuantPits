@@ -297,7 +297,10 @@ class ExecutionAnalyzer:
             if not actual_instruments:
                 continue
                 
-            sugg_df = pd.read_csv(f)
+            try:
+                sugg_df = pd.read_csv(f)
+            except pd.errors.EmptyDataError:
+                continue
             if sugg_df.empty:
                 continue
             

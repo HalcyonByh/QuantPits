@@ -61,6 +61,17 @@ def test_analyze_explicit_costs_empty(ea_factory):
     assert result["total_fees"] == 0.0
 
 
+def test_calculate_slippage_empty_log(ea_factory):
+    ea = ea_factory(trade_log_df=pd.DataFrame())
+    result = ea.calculate_slippage_and_delay()
+    assert result.empty
+
+def test_calculate_path_dependency_empty_log(ea_factory):
+    ea = ea_factory(trade_log_df=pd.DataFrame())
+    result = ea.calculate_path_dependency()
+    assert result.empty
+
+
 # ── slippage with mock ───────────────────────────────────────────────────
 
 def test_slippage_with_mock(ea_factory):
@@ -162,6 +173,22 @@ def test_calculate_slippage_and_delay_no_merge(mock_get_features, ea_factory):
         result = ea.calculate_slippage_and_delay()
     assert result.empty
 
+@patch('quantpits.scripts.analysis.execution_analyzer.get_daily_features')
+def test_calculate_path_dependency_no_merge(mock_get_features, ea_factory):
+    trade_log = _make_trade_log()
+    ea = ea_factory(trade_log_df=trade_log)
+    mock_features = pd.DataFrame()
+    # Mock high/low features
+    mock_features = pd.DataFrame({
+        'instrument': ['SZ000001'],
+        'datetime': pd.to_datetime(['2020-01-01']),
+        'unadj_high': [10.0], 'unadj_low': [10.0]
+    })
+    mock_get_features.return_value = mock_features
+    with patch('quantpits.scripts.analysis.execution_analyzer.load_market_config', return_value=("csi300", "SH000300")):
+        result = ea.calculate_path_dependency()
+    assert result.empty
+
 # ── calculate_path_dependency ────────────────────────────────────────────
 
 @patch('quantpits.scripts.analysis.execution_analyzer.get_daily_features')
@@ -260,6 +287,97 @@ def test_analyze_order_discrepancies(mock_fwd_returns, mock_get_features, tmp_pa
     assert "realized_substitute_bias_impact" in result
     assert np.isclose(float(result["realized_avg_substitute_return"]), -0.00476190476)
 
+
+@patch('quantpits.scripts.analysis.execution_analyzer.get_daily_features')
+@patch('quantpits.scripts.analysis.utils.get_forward_returns')
+def test_analyze_order_discrepancies_edge_cases(mock_fwd_returns, mock_get_features, tmp_path, ea_factory):
+    trade_log = _make_trade_log()  # SZ000001 buy on 2026-01-10, SZ000002 sell on 2026-01-15
+    ea = ea_factory(trade_log_df=trade_log)
+    
+    order_dir = tmp_path / "order_suggestions"
+    order_dir.mkdir()
+    
+    # 1. Date not present in buy logs (e.g., only sells that day) -> day_log.empty
+    (order_dir / "buy_suggestion_20260115.csv").write_text("instrument,score,action\nSZ000002,0.9,BUY\n")
+    
+    # 2. Empty suggestion file -> sugg_df.empty
+    (order_dir / "buy_suggestion_20260110.csv").write_text("instrument,score,action\n")
+    
+    # 3. No BUY actions -> alg_n_buy == 0
+    (order_dir / "buy_suggestion_20260111.csv").write_text("instrument,score,action\nSZ000001,0.9,SELL\n")
+    
+    # Add fake day so day_log isn't empty but actual_instruments could be empty? (not possible if day_log isn't empty, will skip)
+    
+    # Create invalid prod_config.json to cover exception
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "prod_config.json").write_text("{invalid json}")
+    
+    mock_returns = pd.DataFrame({'return_5d': [0.10]}, index=pd.MultiIndex.from_tuples([('SZ000999', pd.to_datetime('2026-01-10'))], names=["instrument", "datetime"]))
+    mock_returns = mock_returns.reset_index().set_index(["instrument", "datetime"])  
+    mock_fwd_returns.return_value = mock_returns
+    mock_get_features.return_value = pd.DataFrame()
+
+    with patch('quantpits.scripts.analysis.utils.ROOT_DIR', str(tmp_path)):
+        with patch('quantpits.scripts.analysis.execution_analyzer.load_market_config', return_value=("csi300", "SH000300")):
+            result = ea.analyze_order_discrepancies(str(order_dir))
+    
+    assert result.get("total_missed_count", 0) == 0
+
+@patch('quantpits.scripts.analysis.execution_analyzer.get_daily_features')
+@patch('quantpits.scripts.analysis.utils.get_forward_returns')
+def test_analyze_order_discrepancies_key_error(mock_fwd_returns, mock_get_features, tmp_path, ea_factory):
+    trade_log = _make_trade_log()
+    ea = ea_factory(trade_log_df=trade_log)
+    
+    order_dir = tmp_path / "order_suggestions"
+    order_dir.mkdir()
+    
+    # SZ000001 substitute, SZ000999 missed
+    (order_dir / "buy_suggestion_20260110.csv").write_text("instrument,score,action\nSZ000999,0.95,BUY\nSZ000001,0.80,BUY\n")
+    
+    # Empty forward returns so lookups throw KeyError
+    mock_fwd_returns.return_value = pd.DataFrame(index=pd.MultiIndex.from_tuples([], names=["instrument", "datetime"]))
+    
+    # Empty features so unadj_close lookup throws KeyError completely
+    mock_get_features.return_value = pd.DataFrame(columns=["instrument", "datetime", "unadj_close"])
+
+    with patch('quantpits.scripts.analysis.execution_analyzer.load_market_config', return_value=("csi300", "SH000300")):
+        result = ea.analyze_order_discrepancies(str(order_dir))
+        
+    assert result["total_missed_count"] == 1
+    assert result["avg_missed_buys_return"] == 0.0
+
+@patch('quantpits.scripts.analysis.execution_analyzer.get_daily_features')
+@patch('quantpits.scripts.analysis.utils.get_forward_returns')
+def test_analyze_order_discrepancies_unadj_close_key_error(mock_fwd_returns, mock_get_features, tmp_path, ea_factory):
+    trade_log = _make_trade_log()
+    ea = ea_factory(trade_log_df=trade_log)
+    
+    order_dir = tmp_path / "order_suggestions"
+    order_dir.mkdir()
+    
+    # SZ000001 substitute, SZ000999 missed
+    (order_dir / "buy_suggestion_20260110.csv").write_text("instrument,score,action\nSZ000999,0.95,BUY\nSZ000001,0.80,BUY\n")
+    
+    mock_returns = pd.DataFrame({'return_5d': [0.10, 0.05]}, index=pd.MultiIndex.from_tuples([('SZ000999', pd.to_datetime('2026-01-10')), ('SZ000001', pd.to_datetime('2026-01-10'))], names=["instrument", "datetime"]))
+    mock_returns = mock_returns.reset_index().set_index(["instrument", "datetime"])  
+    mock_fwd_returns.return_value = mock_returns
+    
+    # Feature df exists but lacks SZ000001 explicitly to trigger KeyError in unadj_close lookup
+    mock_get_features.return_value = pd.DataFrame({
+        'instrument': ['SZ000888'],
+        'datetime': [pd.to_datetime('2026-01-10')],
+        'unadj_close': [10.0]
+    })
+
+    with patch('quantpits.scripts.analysis.execution_analyzer.load_market_config', return_value=("csi300", "SH000300")):
+        result = ea.analyze_order_discrepancies(str(order_dir))
+        
+    assert result["total_missed_count"] == 1
+    # Without unadj_close, the realized value falls back to theoretical val (0.05)
+    assert np.isclose(float(result["realized_avg_substitute_return"]), 0.05)
+
 def test_analyze_order_discrepancies_no_date(ea_factory, tmp_path):
     trade_log = _make_trade_log()
     trade_log['成交日期'] = pd.NaT
@@ -286,16 +404,13 @@ def test_init_load_classification(mock_env, ea_factory):
     
     # Test auto-loading classification
     class_df = pd.DataFrame({
-        "成交日期": pd.to_datetime(["2026-01-10", "2026-01-15"]),
-        "证券代码": ["SZ000001", "SZ000002"],
+        "trade_date": ["2026-01-10", "2026-01-15"],
+        "instrument": ["SZ000001", "SZ000002"],
+        "trade_type": ["BUY", "SELL"],
         "trade_class": ["S", "M"]
     })
-    class_df['成交日期'] = pd.to_datetime(class_df['成交日期'])
     
     class_path = workspace / "data" / "trade_classification.csv"
-    # Force both to datetime before merge in the mock to avoid the warning/error
-    trade_log['成交日期'] = pd.to_datetime(trade_log['成交日期'])
-    class_df['成交日期'] = pd.to_datetime(class_df['成交日期'])
     class_df.to_csv(class_path, index=False)
     
     with patch('quantpits.scripts.analysis.execution_analyzer.load_trade_log', return_value=trade_log):
@@ -303,3 +418,18 @@ def test_init_load_classification(mock_env, ea_factory):
             ea = ea_factory(trade_log_df=None)
             assert 'trade_class' in ea.trade_log.columns
             assert ea.trade_log.loc[ea.trade_log['证券代码'] == 'SZ000001', 'trade_class'].iloc[0] == 'S'
+
+def test_init_load_classification_exception(mock_env, ea_factory, capsys):
+    workspace = mock_env
+    trade_log = _make_trade_log()
+    
+    class_path = workspace / "data" / "trade_classification.csv"
+    class_path.write_text("invalid,csv\n1,2,3") # This won't cause read_csv error, but missing columns might or we mock it
+    
+    with patch('pandas.read_csv', side_effect=Exception("Mocked error during load")):
+        with patch('os.path.exists', return_value=True):
+            ea = ea_factory(trade_log_df=trade_log)
+    
+    # Should catch exception and print warning
+    captured = capsys.readouterr()
+    assert "Failed to load trade classification: Mocked error during load" in captured.out
