@@ -308,14 +308,16 @@ python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 ### 6.3 组合 OOS 分析与优选
 
 # 根据上一步生成的 metadata 文件，让分析脚本自动构建候选池并进行 OOS 回测
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
+# （脚本运行结束时会打印 metadata 路径，例如：output/ensemble_runs/brute_force_fast_2026-04-03/run_metadata.json）
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 
-# 运行后可在 output 目录下查看多种验证报告与图形：
-# - analysis_report_<date>.txt (IS 阶段综合评估报告)
-# - risk_return_scatter_<date>.png (IS 风险收益及相关性拟合图)
-# - cluster_dendrogram_<date>.png (模型聚类树状图)
-# - model_attribution_<date>.png (前列与落后组合的模型归因重要度频次)
-# - oos_risk_return_<date>.png / oos_report_<date>.txt (OOS 样本外独立测试成绩)
+# 运行后可在对应 run 目录下查看多种验证报告与图形：
+# is/analysis_report.txt   (IS 阶段综合评估报告)
+# is/risk_return_scatter.png (IS 风险收益及相关性拟合图)
+# is/cluster_dendrogram.png  (模型聚类树状图)
+# is/model_attribution.png   (前列与落后组合的模型归因重要度频次)
+# oos/oos_risk_return.png / oos/oos_report.txt (OOS 样本外独立测试成绩)
+# summary.md               (一页纸汇总，VS Code 可预览)
 
 # 使用分组穷举
 python quantpits/scripts/brute_force_fast.py --use-groups
@@ -340,7 +342,7 @@ python quantpits/scripts/brute_force_ensemble.py --resume
 
 1. **粗筛**：`brute_force_fast.py` 跑完所有组合（秒/分钟级）
 2. **精确验证**：将 Top 10-20 组合用 `brute_force_ensemble.py` 精确验证
-3. **确认**：查看 `output/brute_force*/analysis_report_*.txt` 选定最优组合
+3. **确认**：查看 `output/ensemble_runs/*/summary.md` 和 `is/analysis_report.txt` 选定最优组合
 
 > 详见 [02_BRUTE_FORCE_GUIDE.md](02_BRUTE_FORCE_GUIDE.md)
 
@@ -589,8 +591,8 @@ python quantpits/scripts/static_train.py --predict-only --all-enabled
 # ② 快速穷举（带 OOS 验证）
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
-# ③ 评估并验证 Top 候选
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
+# ③ 评估并验证 Top 候选（脚本结束会打印 metadata 路径）
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 
 # ③ 精确验证 Top 候选
 python quantpits/scripts/brute_force_ensemble.py --min-combo-size 3 --max-combo-size 3

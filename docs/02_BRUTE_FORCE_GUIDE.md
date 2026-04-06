@@ -42,11 +42,12 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - 支持 `--resume` 从已有 CSV 继续
 
 ### Stage 4 — 元数据导出
-- 穷举结束后，将生成包含回测环境、日期切分设置的 `run_metadata_{date}.json`，供独立分析脚本消费。
+- 穷举结束后，将在 `output/ensemble_runs/{script}_{date}/` 目录下生成 `run_metadata.json`，供独立分析脚本消费。
 
 ### Stage 5 — 独立多维分析与 OOS 验证
-- 穷举本质上是 In-Sample (IS) 寻优。我们将所有分析、挑选和 Out-Of-Sample (OOS) 验证逻辑解耦到了独立的 `analyze_ensembles.py` 脚本中。
-- 通过运行 `python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json`，系统将基于 Yield, Robustness, MVP 等多维度构建候选池，并在 OOS 数据上自动且无偏地打分排名。
+- 穷举本质上是 In-Sample (IS) 寻优。所有分析、挑选和 Out-Of-Sample (OOS) 验证逻辑解耦到了独立的 `analyze_ensembles.py` 脚本中。
+- 通过运行 `python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json`，系统将基于 Yield, Robustness, MVP 等多维度构建候选池，并在 OOS 数据上自动且无偏地打分排名。
+- 分析完成后，在 run 目录内自动生成 `summary.md` 一页纸摘要，包含 IS/OOS 关键指标和文件清单。
 
 > [!NOTE]
 > **关于单模型表现与融合回测的评测差异说明**
@@ -66,7 +67,7 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 | `--min-combo-size` | `1` | 最小组合模型数（分组模式下指选几个组） |
 | `--freq` | `None` | 回测交易频率 (`day` / `week`)，默认从 `strategy_config.yaml` 读取 |
 | `--top-n` | `50` | 分析时 Top/Bottom N |
-| `--output-dir` | `output/brute_force` | 输出目录 |
+| `--output-dir` | `output/ensemble_runs` | **输出根目录**（每次运行自动在其下创建 `{script}_{date}/` 子目录） |
 | `--resume` | - | 从已有 CSV 继续（支持崩溃/中断后恢复） |
 | `--n-jobs` | `4` | 并发回测线程数 |
 | `--batch-size` | `50` | 每批处理组合数（影响 checkpoint 粒度和内存） |
@@ -75,19 +76,25 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 
 ## 输出文件
 
-所有输出保存在 `output/brute_force/` 目录下：
+所有输出按**每次运行**存储在独立子目录下，搜索过程（IS）和 OOS 验证产出物分层组织：
 
 ```
-output/brute_force/
-├── correlation_matrix_{date}.csv     # 预测值相关性矩阵
-├── brute_force_results_{date}.csv    # 回测结果（核心文件）
-├── model_attribution_{date}.csv      # 模型归因表
-├── model_attribution_{date}.png      # 归因条形图
-├── risk_return_scatter_{date}.png    # 风险-收益散点图
-├── cluster_dendrogram_{date}.png     # 层次聚类图
-├── optimization_weights_{date}.csv   # 优化权重
-├── optimization_equity_{date}.png    # 优化策略净值曲线
-└── analysis_report_{date}.txt        # 综合分析报告
+output/ensemble_runs/
+└── brute_force_2026-04-03/         # 每次运行独立目录（script + anchor_date）
+    ├── run_metadata.json            # 运行配置及日期切分（供分析脚本使用）
+    ├── summary.md                   # 一页纸汇总：IS/OOS 关键指标 + 文件清单
+    ├── is/                          # IS（样本内）产出物
+    │   ├── results.csv              # 回测结果（核心文件）
+    │   ├── correlation_matrix.csv   # 预测值相关性矩阵
+    │   ├── analysis_report.txt      # IS 综合评估报告
+    │   ├── model_attribution.csv    # 模型归因表
+    │   ├── model_attribution.png    # 归因条形图
+    │   ├── risk_return_scatter.png  # 风险-收益散点图
+    │   └── cluster_dendrogram.png   # 层次聚类图
+    └── oos/                         # OOS（样本外）产出物
+        ├── oos_multi_analysis.csv   # 多维候选池 OOS 评测结果
+        ├── oos_report.txt           # OOS 综合分析报告
+        └── oos_risk_return.png      # OOS 风险-收益散点图
 ```
 
 ## 运行时间估计
@@ -229,7 +236,7 @@ python quantpits/scripts/brute_force_fast.py
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 # 2. 调用独立的分析脚本进行多维筛选和自动 OOS 验证
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<上次运行的anchor_date>/run_metadata.json
 
 # 使用 GPU 加速
 python quantpits/scripts/brute_force_fast.py --use-gpu
@@ -286,20 +293,27 @@ python quantpits/scripts/brute_force_fast.py --use-groups --group-config config/
 # --exclude-last-years 1: 把最近的 1 年数据剔除，仅使用前 2 年作为 In-Sample 寻找组合
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
-# 2. 调用独立的分析脚本，在被剔除的最近 1 年 OOS 数据上自动验证模型池
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<上次运行时间>.json
+# 2. 运行结束后，脚本会打印出 metadata 路径，例如：
+#   ✅ 元数据已保存: output/ensemble_runs/brute_force_fast_2026-04-03/run_metadata.json
+#   请使用以下命令进行分析与 OOS 验证:
+#     python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_2026-04-03/run_metadata.json
+
+# 3. 调用独立的分析脚本，在被剔除的最近 1 年 OOS 数据上自动验证模型池
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 ```
 
 执行后，穷举结束后，通过调用 `analyze_ensembles.py` 喂入刚才生成的元数据 JSON，系统将自动构建多维候选池（Yield, Robustness 等），并在被剔除的 OOS 数据上展开真实回测，生成散点图与 OOS 评价报告。
 
 ### 分析与评估产出物 (Analysis Artifacts)
 
-运行上述分析脚本后，系统将在 `output/brute_force_fast/` 或对应目录下生成详尽的评估文件：
-- **综合评估报告 (`analysis_report_{date}.txt` / `oos_report_{date}.txt`)**：包含各策略候选池（Yield, MVP, Diversity）在 IS 和 OOS 的年化收益、最大回撤、Calmar等表现。
-- **风险收益全景散点图 (`risk_return_scatter_{date}.png`)**：展示 IS 阶段的所有组合风险-收益表现二维全景以及相关性拟合。
-- **内部聚合特征树状图 (`cluster_dendrogram_{date}.png`)**：基于模型间预测相关性绘制的 Ward 聚类距离分析，识别模型间的同质化。
-- **模型归因重要度 (`model_attribution_{date}.png`)**：基于最优与最差多模型组合进行归因频率统计，发现最有价值的基础模型。
-- **OOS 验证散点图 (`oos_risk_return_{date}.png`)**：多维候选池在 OOS 独立集中的真实盲测结果绘图追踪。
+运行上述分析脚本后，系统将在 run 目录下的 `is/` 和 `oos/` 子目录中生成详尽的评估文件，并在根目录自动生成 `summary.md` 一页纸摘要：
+- **IS 综合评估报告 (`is/analysis_report.txt`)**：包含各策略候选池（Yield, MVP, Diversity）在 IS 阶段的年化收益、最大回撤、Calmar 等表现。
+- **风险收益全景散点图 (`is/risk_return_scatter.png`)**：展示 IS 阶段所有组合的风险-收益二维全景以及相关性拟合。
+- **内部聚合特征树状图 (`is/cluster_dendrogram.png`)**：基于模型间预测相关性绘制的 Ward 聚类分析图，识别模型同质化。
+- **模型归因重要度 (`is/model_attribution.png`)**：基于最优与最底组合进行归因频率统计，发现高价值基础模型。
+- **OOS 综合报告 (`oos/oos_report.txt`)**：多维候选池在 OOS 独立集中的真实盲测结果。
+- **OOS 验证散点图 (`oos/oos_risk_return.png`)**：多维候选池在 OOS 集中的风险-收益绘图追踪。
+- **汇总摘要 (`summary.md`)**：IS/OOS 关键指标 + 运行配置 + 文件清单，可直接在 VS Code 预览。
 
 ### 分析脚本参数说明 (Analyzer Parameters)
 
@@ -348,14 +362,31 @@ pip install cupy-cuda11x
 
 ### 输出文件
 
-输出保存在 `output/brute_force_fast/`（与原版目录分开）：
+快速版产出物与标准版结构一致，存储在 `output/ensemble_runs/brute_force_fast_{date}/`：
 
 ```
-output/brute_force_fast/
-├── correlation_matrix_{date}.csv          # 预测值相关性矩阵
-├── brute_force_fast_results_{date}.csv    # 回测结果（核心文件）
-├── run_metadata_{date}.json               # 运行配置及参数（供独立分析脚本使用）
-├── oos_multi_analysis_{date}.csv          # 【分析脚本生成】多维候选池 OOS 评测结果
-├── oos_risk_return_{date}.png             # 【分析脚本生成】多维候选池 OOS 风险-收益散点图
-└── oos_report_{date}.txt                  # 【分析脚本生成】综合 OOS 分析报告
+output/ensemble_runs/brute_force_fast_2026-04-03/
+├── run_metadata.json               # 运行配置及参数（供独立分析脚本使用）
+├── summary.md                      # 一页纸汇总（analyze_ensembles 生成后填充）
+├── is/
+│   ├── results.csv                 # 回测结果（核心文件）
+│   ├── correlation_matrix.csv      # 预测值相关性矩阵
+│   ├── analysis_report.txt         # IS 综合评估报告
+│   ├── model_attribution.csv/.png  # 模型归因
+│   ├── risk_return_scatter.png     # IS 散点图
+│   └── cluster_dendrogram.png      # 聚类图
+└── oos/
+    ├── oos_multi_analysis.csv       # 【分析脚本生成】多维候选池 OOS 评测结果
+    ├── oos_risk_return.png          # 【分析脚本生成】OOS 风险-收益散点图
+    └── oos_report.txt               # 【分析脚本生成】OOS 综合分析报告
 ```
+
+> **迁移旧数据**：如需将 `output/brute_force/` 和 `output/brute_force_fast/` 中的旧文件迁移到新结构，可使用：
+>
+> ```bash
+> # 预览
+> python quantpits/scripts/migrate_ensemble_outputs.py --dry-run
+> 
+> # 执行（原目录不删除，确认后可手动清理）
+> python quantpits/scripts/migrate_ensemble_outputs.py
+> ```

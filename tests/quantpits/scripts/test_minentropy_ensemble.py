@@ -119,7 +119,7 @@ def test_minentropy_backtest_resume(mock_env, mock_is_norm_df, tmp_path):
     output_dir.mkdir()
     
     anchor_date = "2020-01-01"
-    csv_path = output_dir / f"minentropy_results_{anchor_date}.csv"
+    csv_path = output_dir / f"results_{anchor_date}.csv"
     
     # Pre-create result CSV with one combo done
     pd.DataFrame({

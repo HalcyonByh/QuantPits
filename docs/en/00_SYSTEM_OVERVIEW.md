@@ -278,6 +278,7 @@ python quantpits/scripts/ensemble_fusion.py \
 
 - **Recommended Workflow**: Use the fast script to rough-screen all combos, then use the original script to accurately verify top candidates
 - Outputs model attribution analysis, risk-return scatter plots, hierarchical clustering, etc.
+- Outputs are neatly organized per-run under `output/ensemble_runs/{script}_{date}/` stratified into IS and OOS layers.
 - Supports `--resume` to continue running
 
 ### ④ Fusion Prediction Module
@@ -397,8 +398,7 @@ latest_train_records.json   prod_config.json (Update Pos/Cash)
 |-----------|------|
 | `(Qlib Recorders)` | Prediction results for models and ensembles (Stored in mlruns) |
 | `(Qlib Recorders)` | Rolling training predictions |
-| `brute_force/` | Exact brute force backtest results and analytical reports |
-| `brute_force_fast/` | Fast brute force screening results |
+| `ensemble_runs/` | Brute force search outputs: dedicated subdirectories per run containing `is/`, `oos/`, and `summary.md` |
 | `ensemble/` | Fusion configs, leaderboards, charts, inter-combo comparisons |
 | `ranking/` | Top N signal ranking CSVs |
 | `model_opinions_*.csv/json` | Multi-model BUY/SELL/HOLD judgment tables |
@@ -459,6 +459,7 @@ The `quantpits/utils/` directory provides shared capabilities for all scripts, e
 | `env.py` | Qlib initialization, working directory management | Global |
 | `ensemble_utils.py` | Ensemble config parsing, combo management, records loading | Fusion, Signal Ranking, Order Gen |
 | `search_utils.py` | Combo search shared logic: signal handling, backtest core, IS/OOS splitting, grouped combinations | Brute Force (Standard/Fast), MinEntropy, Analysis |
+| `run_context.py` | Encapsulates per-run output directory management and IS/OOS stratifications | Brute Force, Analysis |
 | `fusion_engine.py` | Weight calculation (equal/icir/manual/dynamic), signal fusion | Fusion |
 | `backtest_report.py` | Detailed backtest analysis reports (using PortfolioAnalyzer) | Fusion |
 

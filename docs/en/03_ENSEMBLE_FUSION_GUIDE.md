@@ -200,12 +200,12 @@ output/
 # Step 1: Train targeted algorithms
 python quantpits/scripts/static_train.py --full
 
-# Step 2: Brute force sweep uncovering optimized matrices
-python quantpits/scripts/brute_force_ensemble.py --min-models 3 --max-models 6
+# Step 2: Exhaust combos targeting highest robustness
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
-# Step 3: Parse outputs, commit attractive combinations to config blocks
-cat output/brute_force/leaderboard.csv
-# Edit config/ensemble_config.json appropriately
+# Step 3: Parse results, push selected structures into the configuration
+cat output/ensemble_runs/brute_force_fast_*/summary.md
+# Adjust config/ensemble_config.json appending multiple combosly
 
 # Step 4: Fire multi-combo validation
 python quantpits/scripts/ensemble_fusion.py --from-config-all

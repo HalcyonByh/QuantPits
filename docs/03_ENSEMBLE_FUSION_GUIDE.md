@@ -201,10 +201,10 @@ output/
 python quantpits/scripts/static_train.py --full
 
 # Step 2: 暴力穷举找最优组合
-python quantpits/scripts/brute_force_ensemble.py --min-models 3 --max-models 6
+python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 # Step 3: 查看结果，选择多个组合写入配置
-cat output/brute_force/leaderboard.csv
+cat output/ensemble_runs/brute_force_fast_*/summary.md
 # 编辑 config/ensemble_config.json 添加多个 combo
 
 # Step 4: 运行所有组合融合回测

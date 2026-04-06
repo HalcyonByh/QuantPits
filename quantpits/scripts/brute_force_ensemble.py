@@ -116,8 +116,14 @@ def load_predictions(train_records):
 # Stage 2: 相关性分析
 # ============================================================================
 
-def correlation_analysis(norm_df, output_dir, anchor_date):
-    """计算并保存预测值相关性矩阵"""
+def correlation_analysis(norm_df, output_dir, anchor_date=None):
+    """计算并保存预测值相关性矩阵
+
+    Args:
+        norm_df: 归一化预测数据
+        output_dir: 输出目录 (通常是 RunContext.is_dir)
+        anchor_date: 可选日期后缀 (新结构下不再需要)
+    """
     print(f"\n{'='*60}")
     print("Stage 2: 相关性分析")
     print(f"{'='*60}")
@@ -127,7 +133,8 @@ def correlation_analysis(norm_df, output_dir, anchor_date):
     print(corr_matrix.round(4))
 
     # 保存
-    corr_path = os.path.join(output_dir, f"correlation_matrix_{anchor_date}.csv")
+    suffix = f"_{anchor_date}" if anchor_date else ""
+    corr_path = os.path.join(output_dir, f"correlation_matrix{suffix}.csv")
     corr_matrix.to_csv(corr_path)
     print(f"\n相关性矩阵已保存: {corr_path}")
 
@@ -180,9 +187,9 @@ def _append_results_to_csv(csv_path, results, write_header=False):
 
 def brute_force_backtest(
     norm_df, top_k, drop_n, benchmark, freq,
-    min_combo_size, max_combo_size, output_dir, anchor_date, resume=False,
+    min_combo_size, max_combo_size, output_dir, anchor_date=None, resume=False,
     n_jobs=4, use_groups=False, group_config=None,
-    batch_size=50,
+    batch_size=50, results_filename="results.csv",
 ):
     """
     暴力穷举所有模型组合并回测。
@@ -256,7 +263,7 @@ def brute_force_backtest(
     print(f"并发线程数: {n_jobs}, 批次大小: {batch_size}")
 
     # ── Resume: 加载已有结果 ──
-    csv_path = os.path.join(output_dir, f"brute_force_results_{anchor_date}.csv")
+    csv_path = os.path.join(output_dir, results_filename)
     done_combos = set()
 
     if resume and os.path.exists(csv_path):
@@ -434,8 +441,8 @@ def main():
         help="回测交易频率 (默认: 从 model_config 读取)",
     )
     parser.add_argument(
-        "--output-dir", type=str, default="output/brute_force",
-        help="输出目录 (默认: output/brute_force)",
+        "--output-dir", type=str, default="output/ensemble_runs",
+        help="输出根目录 (默认: output/ensemble_runs)",
     )
     parser.add_argument(
         "--start-date", type=str, default=None,
@@ -497,8 +504,15 @@ def main():
     drop_n = model_config.get("DropN", 3)
     benchmark = model_config.get("benchmark", "SH000300")
 
-    # 输出目录
-    os.makedirs(args.output_dir, exist_ok=True)
+    # 构建 RunContext
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext(
+        base_dir=args.output_dir,
+        script_name="brute_force",
+        anchor_date=anchor_date,
+    )
+    ctx.ensure_dirs()
+    print(f"输出目录: {ctx.run_dir}")
 
     # Stage 1: 加载预测数据 (应用 training-mode 过滤)
     if getattr(args, 'training_mode', None):
@@ -516,7 +530,7 @@ def main():
         sys.exit(1)
 
     # Stage 2: 相关性分析
-    corr_matrix = correlation_analysis(is_norm_df, args.output_dir, anchor_date)
+    corr_matrix = correlation_analysis(is_norm_df, ctx.is_dir)
 
     # Stage 3: 暴力回测 (基于 IS)
     results_df = brute_force_backtest(
@@ -527,8 +541,7 @@ def main():
         freq=args.freq,
         min_combo_size=args.min_combo_size,
         max_combo_size=args.max_combo_size,
-        output_dir=args.output_dir,
-        anchor_date=anchor_date,
+        output_dir=ctx.is_dir,
         resume=args.resume,
         n_jobs=args.n_jobs,
         use_groups=args.use_groups,
@@ -537,7 +550,7 @@ def main():
     )
 
     # 导出 Metadata
-    metadata_path = os.path.join(args.output_dir, f"run_metadata_{anchor_date}.json")
+    metadata_path = ctx.run_path("run_metadata.json")
     is_dates_all = is_norm_df.index.get_level_values("datetime")
     oos_dates_all = oos_norm_df.index.get_level_values("datetime")
     import json
@@ -558,11 +571,12 @@ def main():
             "group_config": args.group_config
         }, f, indent=4)
     print(f"\n✅ 元数据已保存: {metadata_path}")
-    print("请使用 quantpits/scripts/analyze_ensembles.py 单独进行分析与 OOS 验证。")
+    print(f"请使用以下命令进行分析与 OOS 验证:")
+    print(f"  python quantpits/scripts/analyze_ensembles.py --metadata {metadata_path}")
 
     print(f"\n{'='*60}")
     print(f"全部完成！ 耗时结束于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"输出目录: {args.output_dir}")
+    print(f"输出目录: {ctx.run_dir}")
     print(f"{'='*60}")
 
 

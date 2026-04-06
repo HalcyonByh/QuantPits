@@ -48,7 +48,7 @@ import quantpits.utils.search_utils as _su
 
 def minentropy_backtest(
     norm_df, top_k, drop_n, benchmark, freq,
-    max_combo_size, output_dir, anchor_date, resume=False,
+    max_combo_size, output_dir, anchor_date=None, resume=False,
     n_jobs=4, batch_size=50,
 ):
     """
@@ -172,7 +172,8 @@ def minentropy_backtest(
     print(f"mRMR 启发式搜索为您精选出 {len(all_combinations)} 个高质量候选组合！(若穷举可能达千万级)")
     
     # ── Resume: 加载已有结果 ──
-    csv_path = os.path.join(output_dir, f"minentropy_results_{anchor_date}.csv")
+    suffix = f"_{anchor_date}" if anchor_date else ""
+    csv_path = os.path.join(output_dir, f"results{suffix}.csv")
     done_combos = set()
 
     if resume and os.path.exists(csv_path):
@@ -292,7 +293,7 @@ def main():
     parser.add_argument("--training-mode", type=str, default=None, choices=["static", "rolling"])
     parser.add_argument("--max-combo-size", type=int, default=5, help="智能搜索的最大组合大小 (默认: 5)")
     parser.add_argument("--freq", type=str, default=None, choices=["day", "week"])
-    parser.add_argument("--output-dir", type=str, default="output/brute_force")
+    parser.add_argument("--output-dir", type=str, default="output/ensemble_runs")
     parser.add_argument("--start-date", type=str, default=None)
     parser.add_argument("--end-date", type=str, default=None)
     parser.add_argument("--exclude-last-years", type=int, default=0)
@@ -321,6 +322,16 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # 构建 RunContext
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext(
+        base_dir=args.output_dir,
+        script_name="minentropy",
+        anchor_date=anchor_date,
+    )
+    ctx.ensure_dirs()
+    print(f"输出目录: {ctx.run_dir}")
+
     # Stage 1: 加载预测数据 (应用 training-mode 过滤)
     if getattr(args, 'training_mode', None):
         from quantpits.utils.train_utils import filter_models_by_mode
@@ -338,7 +349,7 @@ def main():
         sys.exit(1)
 
     # 1. 相关性分析 (借用 brute_force 的功能落盘)
-    correlation_analysis(is_norm_df, args.output_dir, anchor_date)
+    correlation_analysis(is_norm_df, ctx.is_dir)
 
     # 2. MinEntropy mRMR 回测
     results_df = minentropy_backtest(
@@ -348,15 +359,14 @@ def main():
         benchmark=benchmark,
         freq=args.freq,
         max_combo_size=args.max_combo_size,
-        output_dir=args.output_dir,
-        anchor_date=anchor_date,
+        output_dir=ctx.is_dir,
         resume=args.resume,
         n_jobs=args.n_jobs,
         batch_size=args.batch_size,
     )
 
     # 3. 导出 Metadata (标记 script_used: minentropy 以便后续处理)
-    metadata_path = os.path.join(args.output_dir, f"minentropy_metadata_{anchor_date}.json")
+    metadata_path = ctx.run_path("run_metadata.json")
     is_dates_all = is_norm_df.index.get_level_values("datetime") if not is_norm_df.empty else pd.Series()
     oos_dates_all = oos_norm_df.index.get_level_values("datetime") if not oos_norm_df.empty else pd.Series()
     
@@ -376,7 +386,8 @@ def main():
             "mrmr_candidate_size": args.mrmr_candidate_size,
         }, f, indent=4)
     print(f"\n✅ 元数据已保存: {metadata_path}")
-    print("请使用 quantpits/scripts/analyze_ensembles.py 单独进行分析与 OOS 验证。")
+    print(f"请使用以下命令进行分析与 OOS 验证:")
+    print(f"  python quantpits/scripts/analyze_ensembles.py --metadata {metadata_path}")
 
 if __name__ == "__main__":
     main()

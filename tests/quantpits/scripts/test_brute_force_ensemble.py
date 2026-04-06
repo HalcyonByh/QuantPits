@@ -198,10 +198,18 @@ def test_correlation_analysis(mock_env, tmp_path):
 
     out_dir = str(tmp_path / "output")
     os.makedirs(out_dir, exist_ok=True)
-    corr = bfe.correlation_analysis(norm_df, out_dir, "2020-01-01")
 
+    # Test with anchor_date (legacy)
+    corr = bfe.correlation_analysis(norm_df, out_dir, "2020-01-01")
     assert corr.loc["M1", "M2"] == 1.0
     assert os.path.exists(os.path.join(out_dir, "correlation_matrix_2020-01-01.csv"))
+
+    # Test without anchor_date (new structure)
+    out_dir2 = str(tmp_path / "output2")
+    os.makedirs(out_dir2, exist_ok=True)
+    corr2 = bfe.correlation_analysis(norm_df, out_dir2)
+    assert corr2.loc["M1", "M2"] == 1.0
+    assert os.path.exists(os.path.join(out_dir2, "correlation_matrix.csv"))
 
 # ── signal handlers ──────────────────────────────────────────────────────
 def test_signal_handlers(mock_env):
@@ -452,7 +460,7 @@ def test_brute_force_backtest_basic(mock_run_bt, mock_exchange, mock_env, tmp_pa
     )
     
     assert len(results) == 2 # m1 and m2
-    assert os.path.exists(os.path.join(out_dir, "brute_force_results_2020-01-01.csv"))
+    assert os.path.exists(os.path.join(out_dir, "results.csv"))
 
 @patch('qlib.backtest.exchange.Exchange', create=True)
 @patch('quantpits.scripts.brute_force_ensemble.run_single_backtest')
@@ -462,7 +470,7 @@ def test_brute_force_backtest_resume(mock_run_bt, mock_exchange, mock_env, tmp_p
     os.makedirs(out_dir, exist_ok=True)
     
     # Create an existing result CSV
-    csv_path = os.path.join(out_dir, "brute_force_results_2020-01-01.csv")
+    csv_path = os.path.join(out_dir, "results.csv")
     existing_df = pd.DataFrame({
         "models": ["m1"], "n_models": [1], "Ann_Ret": [0.1], "Max_DD": [-0.05],
         "Excess_Ret": [0.05], "Ann_Excess": [0.05], "Total_Ret": [0.1], "Final_NAV": [110000], "Calmar": [2.0]
@@ -590,7 +598,7 @@ def test_brute_force_backtest_grouped_and_no_pending(mock_exch, mock_env, tmp_pa
     norm_df = pd.DataFrame({"m1": [0.5], "m2": [0.6]}, index=idx)
     
     # 1. Test no pending tasks (lines 584-588)
-    csv_path = out_dir / "brute_force_results_test.csv"
+    csv_path = out_dir / "results.csv"
     pd.DataFrame({"models": ["m1", "m2"], "Ann_Excess": [0.1, 0.2]}).to_csv(csv_path, index=False)
     
     with patch('builtins.print') as mock_print:

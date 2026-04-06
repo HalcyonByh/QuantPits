@@ -3,10 +3,15 @@
 Analyze Ensembles - 多维度 OOS (Out-Of-Sample) 候选池验证分析
 
 用法:
-  python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force/run_metadata_2026-03-21.json
+  python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_2026-04-03/run_metadata.json
 
 此脚本将读取运行生成的 metadata 与 IS 回测结果，自动恢复数据集划分，
-并在 OOS 数据上对多个不同“派系”的优秀候选组合（高收益、高稳健、低相关等）进行准确的回测验证。
+并在 OOS 数据上对多个不同"派系"的优秀候选组合（高收益、高稳健、低相关等）进行准确的回测验证。
+
+产出物按 RunContext 分层:
+  - IS 可视化/报告 → ctx.is_dir (is/)
+  - OOS 回测/报告 → ctx.oos_dir (oos/)
+  - 汇总摘要 → ctx.run_dir (summary.md)
 """
 
 import os
@@ -31,6 +36,7 @@ env.init_qlib()
 
 from quantpits.utils import strategy
 from quantpits.utils.backtest_utils import run_backtest_with_strategy, standard_evaluate_portfolio
+from quantpits.utils.run_context import RunContext
 from qlib.backtest.exchange import Exchange
 
 def run_single_backtest_oos(
@@ -45,13 +51,61 @@ def run_single_backtest_oos(
     )
 
 
+# ==========================================
+# IS Results Discovery
+# ==========================================
+
+def _find_is_results_csv(ctx, meta):
+    """
+    在 ctx.is_dir 中查找 IS 回测结果 CSV 文件。
+
+    支持新结构（results.csv）和旧结构（带日期后缀的文件名）。
+    """
+    is_dir = ctx.is_dir
+    anchor_date = meta["anchor_date"]
+    script_used = meta.get("script_used", "brute_force_ensemble")
+
+    # 新结构优先: results.csv
+    candidates = [
+        os.path.join(is_dir, "results.csv"),
+    ]
+
+    # 旧结构兼容（LegacyRunContext 时 is_dir == metadata_dir）
+    if "fast" in script_used:
+        candidates.append(os.path.join(is_dir, f"brute_force_fast_results_{anchor_date}.csv"))
+    elif "minentropy" in script_used:
+        candidates.append(os.path.join(is_dir, f"minentropy_results_{anchor_date}.csv"))
+    else:
+        candidates.append(os.path.join(is_dir, f"brute_force_results_{anchor_date}.csv"))
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    return None
+
+
+def _find_correlation_csv(ctx, meta):
+    """在 ctx.is_dir 中查找相关性矩阵 CSV。"""
+    is_dir = ctx.is_dir
+    anchor_date = meta["anchor_date"]
+
+    candidates = [
+        os.path.join(is_dir, "correlation_matrix.csv"),
+        os.path.join(is_dir, f"correlation_matrix_{anchor_date}.csv"),
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
 
 
 # ==========================================
 # VISUALIZATION FUNCTIONS
 # ==========================================
 
-def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix="", top_n=50):
+def generate_is_visualizations_and_report(df, is_dir, anchor_date, top_n=50, corr_file=None):
     print("\n📊 === 生成 IS 阶段可视化与分析报告 ===")
     
     report_lines = []
@@ -66,6 +120,7 @@ def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=
     display_cols = ["models", "n_models", "Ann_Excess", "Max_DD", "Calmar"]
     
     # 1. 模型归因分析 (Model Attribution)
+    attribution = pd.DataFrame()
     try:
         top_combinations = df.sort_values("Calmar", ascending=False).head(top_n)
         bottom_combinations = df.sort_values("Calmar", ascending=True).head(top_n)
@@ -83,7 +138,7 @@ def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=
         attribution["Net_Score"] = attribution["Top_Count"] - attribution["Bottom_Count"]
         attribution = attribution.sort_values("Net_Score", ascending=False)
 
-        attr_path = os.path.join(metadata_dir, f"{prefix}model_attribution_{anchor_date}.csv")
+        attr_path = os.path.join(is_dir, "model_attribution.csv")
         attribution.to_csv(attr_path)
 
         fig, ax = plt.subplots(figsize=(14, 6))
@@ -103,22 +158,17 @@ def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=
         ax.set_title(f"Model Importance Analysis (Top/Bottom {top_n} by Calmar)")
         ax.legend()
         plt.tight_layout()
-        attr_fig_path = os.path.join(metadata_dir, f"{prefix}model_attribution_{anchor_date}.png")
+        attr_fig_path = os.path.join(is_dir, "model_attribution.png")
         plt.savefig(attr_fig_path, dpi=150)
         plt.close()
         print(f"归因图已保存: {attr_fig_path}")
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"模型归因分析失败: {e}")
-        attribution = pd.DataFrame()
 
     # 读取相关性矩阵并计算 avg_corr
     try:
-        corr_file = os.path.join(metadata_dir, f"{prefix}correlation_matrix_{anchor_date}.csv")
-        # 兼容旧版本没有任何前缀的情况
-        if not os.path.exists(corr_file):
-            corr_file = os.path.join(metadata_dir, f"correlation_matrix_{anchor_date}.csv")
-        if os.path.exists(corr_file):
+        if corr_file and os.path.exists(corr_file):
             corr_matrix = pd.read_csv(corr_file, index_col=0)
             
             single_model_perf = df[df["n_models"] == 1].set_index("models")["Ann_Excess"].to_dict()
@@ -205,7 +255,7 @@ def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=
         
         summary.append("=" * 60)
         
-        report_path = os.path.join(metadata_dir, f"{prefix}analysis_report_{anchor_date}.txt")
+        report_path = os.path.join(is_dir, "analysis_report.txt")
         full_report = "\n".join(summary) + "\n\n" + "\n".join(report_lines)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(full_report)
@@ -272,7 +322,7 @@ def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=
                     ax1.set_xlabel("Avg Intra-Ensemble Correlation")
 
                 plt.tight_layout()
-                scatter_path = os.path.join(metadata_dir, f"{prefix}risk_return_scatter_{anchor_date}.png")
+                scatter_path = os.path.join(is_dir, "risk_return_scatter.png")
                 plt.savefig(scatter_path, dpi=150)
                 plt.close()
                 print(f"IS 散点图已保存: {scatter_path}")
@@ -282,17 +332,11 @@ def generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=
 
     return df  # Return df in case it has updated avg_corr
 
-def generate_dendrogram(metadata_dir, anchor_date, prefix=""):
+def generate_dendrogram(is_dir, corr_file=None):
     print("\n🌳 === 生成聚类树状图 ===")
     try:
-        corr_file = os.path.join(metadata_dir, f"{prefix}correlation_matrix_{anchor_date}.csv")
-        if not os.path.exists(corr_file):
-            corr_file = os.path.join(metadata_dir, f"correlation_matrix_{anchor_date}.csv")
-        if os.path.exists(corr_file):
+        if corr_file and os.path.exists(corr_file):
             corr_matrix = pd.read_csv(corr_file, index_col=0)
-            # Ward linkage expects distance, but we can feed it corr_matrix if we convert it to distance
-            # For correlation matrix, distance = col_num dimension matrix? Actually linkage takes squareform distance or observation vectors.
-            # Convert correlation to distance matrix: D = 1 - corr
             distance_matrix = 1 - corr_matrix.fillna(0)
             import scipy.spatial.distance as ssd
             dist_array = ssd.squareform(distance_matrix.clip(0, 2))
@@ -308,7 +352,7 @@ def generate_dendrogram(metadata_dir, anchor_date, prefix=""):
             plt.xticks(rotation=45, ha="right")
             plt.tight_layout()
 
-            dendro_path = os.path.join(metadata_dir, f"{prefix}cluster_dendrogram_{anchor_date}.png")
+            dendro_path = os.path.join(is_dir, "cluster_dendrogram.png")
             plt.savefig(dendro_path, dpi=150)
             plt.close()
             print(f"聚类图已保存: {dendro_path}")
@@ -317,7 +361,7 @@ def generate_dendrogram(metadata_dir, anchor_date, prefix=""):
     except Exception as e:
         print(f"聚类分析失败: {e}")
 
-def generate_oos_visualizations(oos_df, metadata_dir, anchor_date, prefix=""):
+def generate_oos_visualizations(oos_df, oos_dir):
     print("\n📈 === 生成 OOS 阶段可视化分析 ===")
     try:
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -339,13 +383,94 @@ def generate_oos_visualizations(oos_df, metadata_dir, anchor_date, prefix=""):
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         
-        scatter_path = os.path.join(metadata_dir, f"{prefix}oos_risk_return_{anchor_date}.png")
+        scatter_path = os.path.join(oos_dir, "oos_risk_return.png")
         plt.savefig(scatter_path, dpi=150)
         plt.close()
         print(f"OOS 散点图已保存: {scatter_path}")
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"OOS 散点图绘制失败: {e}")
+
+
+def generate_summary_md(ctx, meta, df, oos_df=None, top_n=10):
+    """生成人类可读的 summary.md 一页纸总结。"""
+    lines = []
+    anchor_date = meta["anchor_date"]
+    script_used = meta.get("script_used", "unknown")
+
+    lines.append(f"# Ensemble Search Report — {anchor_date}\n")
+
+    # Run Info
+    lines.append("## Run Info\n")
+    lines.append(f"- **Script**: `{script_used}`")
+    lines.append(f"- **IS Period**: {meta.get('is_start_date', '?')} ~ {meta.get('is_end_date', '?')}")
+    if meta.get("oos_start_date") and str(meta.get("oos_start_date")).lower() != "none":
+        lines.append(f"- **OOS Period**: {meta['oos_start_date']} ~ {meta['oos_end_date']}")
+    else:
+        lines.append("- **OOS Period**: _(not configured)_")
+    lines.append(f"- **Anchor Date**: {anchor_date}")
+    lines.append(f"- **Total Combinations Evaluated**: {len(df)}")
+    lines.append("")
+
+    # IS Highlights
+    lines.append("## IS Highlights\n")
+
+    if df.empty or "Calmar" not in df.columns:
+        lines.append("_(No IS results available)_\n")
+        df_sorted = df
+        top_is = df.head(0)
+    else:
+        df_sorted = df.sort_values("Calmar", ascending=False)
+        top_is = df_sorted.head(top_n)
+
+    lines.append("| Rank | Models | Ann_Excess | Max_DD | Calmar |")
+    lines.append("|------|--------|-----------|--------|--------|")
+    for rank, (_, row) in enumerate(top_is.iterrows(), 1):
+        models_short = row["models"]
+        if len(models_short) > 60:
+            models_short = models_short[:57] + "..."
+        ann_excess = f"{row['Ann_Excess']:.2%}" if pd.notna(row.get("Ann_Excess")) else "?"
+        max_dd = f"{row['Max_DD']:.2%}" if pd.notna(row.get("Max_DD")) else "?"
+        calmar = f"{row['Calmar']:.2f}" if pd.notna(row.get("Calmar")) else "?"
+        lines.append(f"| {rank} | {models_short} | {ann_excess} | {max_dd} | {calmar} |")
+    lines.append("")
+
+    # OOS Validation
+    if oos_df is not None and not oos_df.empty:
+        lines.append("## OOS Validation\n")
+        oos_sorted = oos_df.sort_values("Ann_Excess", ascending=False).head(top_n)
+        lines.append("| Rank | Models | OOS_Excess | OOS_MaxDD | IS→OOS | Pool |")
+        lines.append("|------|--------|-----------|----------|--------|------|")
+        for rank, (_, row) in enumerate(oos_sorted.iterrows(), 1):
+            models_short = row["models"]
+            if len(models_short) > 50:
+                models_short = models_short[:47] + "..."
+            oos_excess = f"{row['Ann_Excess']:.2%}" if pd.notna(row.get("Ann_Excess")) else "?"
+            oos_dd = f"{row['Max_DD']:.2%}" if pd.notna(row.get("Max_DD")) else "?"
+            is_excess = f"{row.get('IS_Ann_Excess', '?'):.2%}" if pd.notna(row.get("IS_Ann_Excess")) else "?"
+            arrow = f"{is_excess} → {oos_excess}"
+            pool = str(row.get("Pool_Sources", ""))[:30]
+            lines.append(f"| {rank} | {models_short} | {oos_excess} | {oos_dd} | {arrow} | {pool} |")
+        lines.append("")
+
+    # Files in This Run
+    lines.append("## Files in This Run\n")
+    for subdir_name, subdir_path in [("is", ctx.is_dir), ("oos", ctx.oos_dir), ("root", ctx.run_dir)]:
+        if os.path.isdir(subdir_path):
+            files = sorted(os.listdir(subdir_path))
+            files = [f for f in files if os.path.isfile(os.path.join(subdir_path, f))]
+            if files:
+                for fname in files:
+                    if subdir_name == "root":
+                        lines.append(f"- `{fname}`")
+                    else:
+                        lines.append(f"- `{subdir_name}/{fname}`")
+    lines.append("")
+
+    summary_path = ctx.run_path("summary.md")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"\n📋 Summary 已保存: {summary_path}")
 
 
 def main():
@@ -358,7 +483,7 @@ def main():
     parser.add_argument("--top-n-mvp", type=int, help="单模型基准 Top 数量 (覆盖 --top-n)")
     parser.add_argument("--top-n-diversity", type=int, help="黄金多样式 Top 数量 (覆盖 --top-n)")
     parser.add_argument("--training-mode", type=str, default="", help="过滤特定训练模式的模型 (如 'static', 'incremental')")
-    parser.add_argument("--max-workers", type=int, default=4, help="OOS回测的并发线程数 (默认: 1)")
+    parser.add_argument("--max-workers", type=int, default=4, help="OOS回测的并发线程数 (默认: 4)")
     args = parser.parse_args()
 
     # 1. 解析 Metadata
@@ -372,32 +497,29 @@ def main():
     oos_start_date = meta.get("oos_start_date")
     oos_end_date = meta.get("oos_end_date")
 
+    # 构建 RunContext (自动检测新/旧目录结构)
+    ctx = RunContext.from_metadata(args.metadata)
+    ctx.ensure_dirs()
+
     print("=" * 60)
     print("🚀 Analyze Ensembles - IS 多维提取与 OOS 验证")
     print(f"数据源: {script_used} (发布于 {anchor_date})")
     print(f"OOS 验证周期间隔: {oos_start_date} ~ {oos_end_date}")
+    print(f"输出目录: {ctx.run_dir}")
     print("=" * 60)
 
     has_oos = bool(oos_start_date and oos_end_date and str(oos_start_date).lower() != "none" and str(oos_end_date).lower() != "none")
     if not has_oos:
         print("⚠️ 警告：元数据中未找到有效的 OOS 数据周期！本次运行仅执行 IS (In-Sample) 全量分析，将跳过 OOS 验证环节。")
 
-    metadata_dir = os.path.dirname(os.path.abspath(args.metadata))
-    
     # 2. 读取 IS Results CSV
-    if "fast" in script_used:
-        results_file = os.path.join(metadata_dir, f"brute_force_fast_results_{anchor_date}.csv")
-    elif "minentropy" in script_used:
-        results_file = os.path.join(metadata_dir, f"minentropy_results_{anchor_date}.csv")
-    else:
-        results_file = os.path.join(metadata_dir, f"brute_force_results_{anchor_date}.csv")
-
-    if not os.path.exists(results_file):
-        print(f"❌ 找不到 IS 结果文件: {results_file}")
+    results_file = _find_is_results_csv(ctx, meta)
+    if not results_file:
+        print(f"❌ 找不到 IS 结果文件，已搜索: {ctx.is_dir}")
         sys.exit(1)
         
     df = pd.read_csv(results_file)
-    print(f"\n✅ 成功加载 IS 结果文件，共 {len(df)} 组策略记录。")
+    print(f"\n✅ 成功加载 IS 结果文件: {os.path.basename(results_file)}，共 {len(df)} 组策略记录。")
 
     if args.training_mode:
         def match_mode(models_str):
@@ -410,17 +532,21 @@ def main():
             print("❌ 过滤后无符合条件的记录，分析终止。")
             sys.exit(0)
 
-    prefix = "" if script_used == "brute_force_ensemble" else f"{script_used.replace('_ensemble', '')}_"
+    # 找到相关性矩阵 CSV
+    corr_file = _find_correlation_csv(ctx, meta)
 
     # 2.5 生成 IS 全量结果可视化
     try:
-        df = generate_is_visualizations_and_report(df, metadata_dir, anchor_date, prefix=prefix, top_n=args.top_n)
-        generate_dendrogram(metadata_dir, anchor_date, prefix=prefix)
+        df = generate_is_visualizations_and_report(
+            df, ctx.is_dir, anchor_date, top_n=args.top_n, corr_file=corr_file
+        )
+        generate_dendrogram(ctx.is_dir, corr_file=corr_file)
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"IS 可视化图表生成跳过/失败: {e}")
 
     if not has_oos:
+        generate_summary_md(ctx, meta, df, oos_df=None)
         print("\n✅ IS 分析已完成。由于未切分 OOS 数据，后续 OOS 验证环节已跳过。")
         return
 
@@ -557,16 +683,17 @@ def main():
     # 6. 生成报告
     if not oos_results:
         print("没有可用的 OOS 结果。")
+        generate_summary_md(ctx, meta, df, oos_df=None)
         return
         
     oos_df = pd.DataFrame(oos_results)
     oos_df = oos_df.sort_values("Ann_Excess", ascending=False)
     
-    out_csv = os.path.join(metadata_dir, f"{prefix}oos_multi_analysis_{anchor_date}.csv")
+    out_csv = os.path.join(ctx.oos_dir, "oos_multi_analysis.csv")
     oos_df.to_csv(out_csv, index=False)
     
     # 7. 生成 OOS 可视化散点图
-    generate_oos_visualizations(oos_df, metadata_dir, anchor_date, prefix=prefix)
+    generate_oos_visualizations(oos_df, ctx.oos_dir)
 
     print("\n🏆 全维 OOS 验证成绩 (Top 15):")
     disp_cols = ["models", "Pool_Sources", "Ann_Excess", "Max_DD", "Calmar", "IS_Ann_Excess", "IS_Calmar"]
@@ -578,19 +705,25 @@ def main():
         "IS_Calmar": "{:.2f}".format,
     }
     
-    report_text = "="*60 + "\\n"
-    report_text += f"OOS 综合验证分析报告 ({anchor_date})\\n"
-    report_text += "="*60 + "\\n\\n"
-    report_text += oos_df[disp_cols].head(15).to_string(formatters=fmt)
+    # 使用真正的换行符写入报告
+    report_lines = []
+    report_lines.append("=" * 60)
+    report_lines.append(f"OOS 综合验证分析报告 ({anchor_date})")
+    report_lines.append("=" * 60)
+    report_lines.append("")
+    report_lines.append(oos_df[disp_cols].head(15).to_string(formatters=fmt))
     
     print(oos_df[disp_cols].head(15).to_string(formatters=fmt))
     
-    report_path = os.path.join(metadata_dir, f"{prefix}oos_report_{anchor_date}.txt")
+    report_path = os.path.join(ctx.oos_dir, "oos_report.txt")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report_text)
+        f.write("\n".join(report_lines))
         
-    print(f"\\n✅ 完整分析报告已保存: {report_path}")
+    print(f"\n✅ 完整分析报告已保存: {report_path}")
     print(f"📊 详细聚合明细已保存: {out_csv}")
+
+    # 8. 生成 summary.md
+    generate_summary_md(ctx, meta, df, oos_df=oos_df)
 
 if __name__ == "__main__":
     main()

@@ -41,12 +41,13 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - Extracts core portfolio mechanics: Annualized Return, Max Drawdown, Calmar Ratio, Excess Return.
 - Supports `--resume` to ingest existing CSV batches without restart logic.
 
-### Stage 4 — Metadata Verification & Export
-- Generates a configuration snapshot `run_metadata_{date}.json` encapsulating exact environment context and date splits.
+### Stage 4 — Metadata Export
+- After exhaustion, a `run_metadata.json` is generated under `output/ensemble_runs/{script}_{date}/`, capturing the exact environment context and date splits.
 
 ### Stage 5 — Decoupled OOS Analysis
 - Brute force is fundamentally In-Sample (IS). All analysis and Out-Of-Sample (OOS) validation logics have been moved to the decoupled `analyze_ensembles.py` script.
-- Executing `python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json` forces the system to construct multidimensional candidate pools (Yield, Robustness, MVP) and run completely blind evaluation scores against the OOS holdout step.
+- Executing `python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json` constructs multidimensional candidate pools (Yield, Robustness, MVP) and runs completely blind OOS evaluation.
+- After analysis completes, `summary.md` is auto-generated in the run directory, containing IS/OOS key metrics and a file inventory.
 
 > [!NOTE]
 > **Understanding Metric Discrepancies: Single Models vs. Ensemble Backtests**
@@ -66,7 +67,7 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 | `--min-combo-size` | `1` | Lower limit of combined models (Or clusters if grouped). |
 | `--freq` | `None` | Backtest frequency (`day` / `week`). Default: read from `strategy_config.yaml` |
 | `--top-n` | `50` | Scale N target for Top/Bottom analysis metrics. |
-| `--output-dir` | `output/brute_force` | Directory bounds. |
+| `--output-dir` | `output/ensemble_runs` | **Output root directory** (each run auto-creates a `{script}_{date}/` subdirectory beneath it). |
 | `--resume` | - | Ingest target logic for crash recovery execution. |
 | `--n-jobs` | `4` | Parallel concurrent simulations. |
 | `--batch-size` | `50` | Combo count per persistence bucket (Impacts RAM intensity and checkpoint intervals). |
@@ -75,19 +76,25 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 
 ## Output Files
 
-All logs reside within `output/brute_force/`:
+All outputs are stored in a **per-run subdirectory**, with IS search and OOS validation artifacts organized in separate layers:
 
 ```text
-output/brute_force/
-├── correlation_matrix_{date}.csv     # Prediction correlations
-├── brute_force_results_{date}.csv    # Base metrics (Terminal outputs)
-├── model_attribution_{date}.csv      # Attribution vectors
-├── model_attribution_{date}.png      # Attribution visual
-├── risk_return_scatter_{date}.png    # Risk vs Return 2D plots
-├── cluster_dendrogram_{date}.png     # Hierarchical mapping
-├── optimization_weights_{date}.csv   # Simulation constraints weighting
-├── optimization_equity_{date}.png    # Optimal simulation trajectory logs
-└── analysis_report_{date}.txt        # Synthesis summary document
+output/ensemble_runs/
+└── brute_force_2026-04-03/         # Per-run directory (script + anchor_date)
+    ├── run_metadata.json            # Run config and date splits (for the analyzer)
+    ├── summary.md                   # One-page summary: IS/OOS key metrics + file index
+    ├── is/                          # In-Sample artifacts
+    │   ├── results.csv              # Backtest results (core file)
+    │   ├── correlation_matrix.csv   # Prediction correlation matrix
+    │   ├── analysis_report.txt      # IS comprehensive evaluation report
+    │   ├── model_attribution.csv    # Model attribution table
+    │   ├── model_attribution.png    # Attribution bar chart
+    │   ├── risk_return_scatter.png  # Risk-return scatter plot
+    │   └── cluster_dendrogram.png   # Hierarchical clustering chart
+    └── oos/                         # Out-Of-Sample artifacts
+        ├── oos_multi_analysis.csv   # Multi-dimensional candidate pool OOS results
+        ├── oos_report.txt           # OOS synthesis report
+        └── oos_risk_return.png      # OOS risk-return scatter plot
 ```
 
 ## Runtime Considerations
@@ -230,7 +237,7 @@ python quantpits/scripts/brute_force_fast.py
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 # 2. Dispatch decoupled analyzer filtering dynamic ensembles generating autonomous OOS metrics.
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 
 # Push compute layer to GPU architectures
 python quantpits/scripts/brute_force_fast.py --use-gpu
@@ -287,20 +294,27 @@ By employing `brute_force_ensemble.py` and `brute_force_fast.py` coupled with **
 # --exclude-last-years 1: Fences the latest year entirely outside algorithm views processing 2-year prior spans as base.
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
-# 2. Dispatch decoupled analyzer filtering dynamic ensembles generating autonomous OOS metrics.
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
+# 2. After completion, the script will print the metadata path, e.g.:
+#   ✅ Metadata saved: output/ensemble_runs/brute_force_fast_2026-04-03/run_metadata.json
+#   Run the following to analyze and validate OOS:
+#     python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_2026-04-03/run_metadata.json
+
+# 3. Dispatch decoupled analyzer filtering dynamic ensembles generating autonomous OOS metrics.
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 ```
 
 Following combinatorial search, routing the exported JSON metadata payload into `analyze_ensembles.py` automatically constructs multidimensional candidate pools ensuring absolute unbiased OOS execution mapping scattering plots and evaluation reports.
 
 ### Analysis and Evaluation Artifacts
 
-Upon execution, the script generates comprehensive visualizations and context-rich documents under `output/brute_force_fast/`:
-- **Comprehensive Text Reports (`analysis_report_{date}.txt` / `oos_report_{date}.txt`)**: Distilled insights identifying highest IS Yield, maximum Robustness, MVP combinations, and independent OOS blind validations.
-- **Risk Return Scatter Dashboard (`risk_return_scatter_{date}.png`)**: Exposes thousands of simulated permutations against single-model points plotting raw drawdowns versus annualized excesses, joined by intra-ensemble correlation mappings.
-- **Prediction Cluster Dendrogram (`cluster_dendrogram_{date}.png`)**: Ward-distance hierarchical map graphing distinct prediction clusters avoiding severe homogeneity pools.
-- **Model Attribution Histogram (`model_attribution_{date}.png`)**: Cross-frequency chart comparing occurrence frequencies of sub-models actively selected in 'Best' vs. 'Worst' performance buckets.
-- **OOS Validation Tracking Matrix (`oos_risk_return_{date}.png`)**: Evaluates real-world validity plotting how theoretical specific candidate pools transitioned into actual untainted OOS domains.
+Upon execution, the script generates comprehensive visualizations and context-rich documents in the `is/` and `oos/` subdirectories of the run folder, plus an auto-generated `summary.md` at the root:
+- **IS Evaluation Report (`is/analysis_report.txt`)**: Distilled IS insights per strategy pool (Yield, MVP, Diversity) — annualized returns, max drawdown, Calmar.
+- **Risk Return Scatter Dashboard (`is/risk_return_scatter.png`)**: All IS combos plotted on a risk-return 2D plane with correlation fit overlay.
+- **Prediction Cluster Dendrogram (`is/cluster_dendrogram.png`)**: Ward-distance hierarchical map identifying homogeneous model clusters.
+- **Model Attribution Histogram (`is/model_attribution.png`)**: Cross-frequency chart comparing sub-model frequencies in Best vs. Worst performance buckets.
+- **OOS Report (`oos/oos_report.txt`)**: Real-world blind OOS evaluation results for all candidate pools.
+- **OOS Validation Scatter (`oos/oos_risk_return.png`)**: Risk-return plot tracking candidate performance on the untainted OOS domain.
+- **Summary (`summary.md`)**: IS/OOS key metrics + run config + file index — viewable directly in VS Code preview.
 
 ### Analyzer Parameters
 
@@ -350,14 +364,31 @@ pip install cupy-cuda11x
 
 ### Extracted Reports
 
-Fast iteration layers route intrinsically to `output/brute_force_fast/` separating from native qlib output files:
+Fast mode outputs share the same structure as standard mode, stored under `output/ensemble_runs/brute_force_fast_{date}/`:
 
 ```text
-output/brute_force_fast/
-├── correlation_matrix_{date}.csv          # Inter-prediction linkage
-├── brute_force_fast_results_{date}.csv    # Vector simulations metrics
-├── run_metadata_{date}.json               # Metadata payload for decoupled analyzer
-├── oos_multi_analysis_{date}.csv          # [Analyzer Output] Multidimensional OOS candidate metrics
-├── oos_risk_return_{date}.png             # [Analyzer Output] Multidimensional OOS risk-return scatter plots
-└── oos_report_{date}.txt                  # [Analyzer Output] Synthesis OOS analytics report
+output/ensemble_runs/brute_force_fast_2026-04-03/
+├── run_metadata.json               # Run config payload (for decoupled analyzer)
+├── summary.md                      # One-page summary (populated after analyze_ensembles)
+├── is/
+│   ├── results.csv                 # Vector simulation metrics (core file)
+│   ├── correlation_matrix.csv      # Inter-prediction linkage
+│   ├── analysis_report.txt         # IS comprehensive report
+│   ├── model_attribution.csv/.png  # Attribution analysis
+│   ├── risk_return_scatter.png     # IS scatter plot
+│   └── cluster_dendrogram.png      # Clustering chart
+└── oos/
+    ├── oos_multi_analysis.csv       # [Analyzer Output] Multidimensional OOS candidate metrics
+    ├── oos_risk_return.png          # [Analyzer Output] OOS risk-return scatter plots
+    └── oos_report.txt               # [Analyzer Output] OOS synthesis analytics report
 ```
+
+> **Migrating legacy data**: To migrate existing flat files from `output/brute_force/` and `output/brute_force_fast/` into the new structure:
+>
+> ```bash
+> # Preview
+> python quantpits/scripts/migrate_ensemble_outputs.py --dry-run
+>
+> # Execute (original directories are preserved — clean up manually after verification)
+> python quantpits/scripts/migrate_ensemble_outputs.py
+> ```

@@ -308,15 +308,17 @@ python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 ### 6.3 Ensemble OOS Analytics & Optimization
 
-# Funnels the generated metadata into the analyzer, autonomously filtering candidate pools and mapping OOS validation
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
+# Funnel the generated metadata into the analyzer to build candidate pools and run OOS backtests.
+# (The script prints the metadata path on exit, e.g.: output/ensemble_runs/brute_force_fast_2026-04-03/run_metadata.json)
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 
-# Execution saves the following validation reports & graphics inside the output directory:
-# - analysis_report_<date>.txt (Holistic IS Stage Evaluation Report)
-# - risk_return_scatter_<date>.png (IS Risk-Return Spread & Correlation Matrix Plot)
-# - cluster_dendrogram_<date>.png (Model Prediction Proximity Dendrogram)
-# - model_attribution_<date>.png (Frequency Histograms of Models Within Best/Worst Pools)
-# - oos_risk_return_<date>.png / oos_report_<date>.txt (Blind Out-Of-Sample Validity Tests)
+# After execution, check the run directory for validation reports and charts:
+# is/analysis_report.txt    (Holistic IS Stage Evaluation Report)
+# is/risk_return_scatter.png (IS Risk-Return Spread & Correlation Matrix Plot)
+# is/cluster_dendrogram.png  (Model Prediction Proximity Dendrogram)
+# is/model_attribution.png   (Frequency Histograms of Models Within Best/Worst Pools)
+# oos/oos_risk_return.png / oos/oos_report.txt (Blind Out-Of-Sample Validity Tests)
+# summary.md                 (One-page summary, viewable via VS Code preview)
 
 # With group-based enumeration
 python quantpits/scripts/brute_force_fast.py --use-groups
@@ -341,7 +343,7 @@ python quantpits/scripts/brute_force_ensemble.py --resume
 
 1. **Coarse screening**: Run `brute_force_fast.py` across all combinations (seconds/minutes)
 2. **Precise validation**: Validate Top 10-20 candidates with `brute_force_ensemble.py`
-3. **Confirm**: Review `output/brute_force*/analysis_report_*.txt` and select optimal combinations
+3. **Confirm**: Review `output/ensemble_runs/*/summary.md` and `is/analysis_report.txt` and select optimal combinations
 
 > See [02_BRUTE_FORCE_GUIDE.md](02_BRUTE_FORCE_GUIDE.md) for details.
 
@@ -597,8 +599,8 @@ python quantpits/scripts/static_train.py --predict-only --all-enabled
 # ② Fast brute-force search (with OOS validation)
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
-# ③ Accurately validate top candidates via the decoupled analyzer
-python quantpits/scripts/analyze_ensembles.py --metadata output/brute_force_fast/run_metadata_<date>.json
+# ③ Evaluate and validate top candidates via the decoupled analyzer (script prints metadata path on exit)
+python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json
 
 # ③ Accurately validate top candidates
 python quantpits/scripts/brute_force_ensemble.py --min-combo-size 3 --max-combo-size 3

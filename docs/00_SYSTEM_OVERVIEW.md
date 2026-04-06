@@ -281,7 +281,8 @@ python quantpits/scripts/ensemble_fusion.py \
 | `brute_force_ensemble.py` | Qlib 完整回测 | ~5s/组合 |
 
 - **推荐工作流**：先用快速版粗筛所有组合，再用原版精确验证 Top 候选
-- 输出模型归因分析、风险收益散点图、层次聚类等
+- 输出模型归因分析、风险收益散点图、层次聚类图等
+- 整理后的产出物存储在每次运行独立子目录 `output/ensemble_runs/{script}_{date}/` 中，IS 与 OOS 分层存放
 - 支持 `--resume` 断点续跑
 
 ### ④ 融合预测模块
@@ -401,8 +402,7 @@ python quantpits/scripts/ensemble_fusion.py \
 |-----------|------|
 | `(Qlib Recorders)` | 各模型和 ensemble 的预测结果（储存于 mlruns） |
 | `(Qlib Recorders)` | 滚动训练预测结果 |
-| `brute_force/` | 暴力穷举精确回测结果和分析报告 |
-| `brute_force_fast/` | 快速穷举结果 |
+| `ensemble_runs/` | 穷举搜索产出物：每次运行居一个独立子目录，内含 `is/`、`oos/`、`summary.md` |
 | `ensemble/` | 融合配置、排行榜、图表、跨组合对比 |
 | `ranking/` | 信号排名 Top N CSV |
 | `model_opinions_*.csv/json` | 多模型 BUY/SELL/HOLD 判断表 |
@@ -463,6 +463,7 @@ python quantpits/scripts/ensemble_fusion.py \
 | `env.py` | Qlib 初始化、工作目录管理 | 全局 |
 | `ensemble_utils.py` | Ensemble 配置解析、combo 管理、记录加载 | 融合、信号排名、订单生成 |
 | `search_utils.py` | 组合搜索共享逻辑：信号处理、回测核心、IS/OOS 切分、分组穷举 | 暴力穷举(标准/快速)、最小熵搜索、组合分析 |
+| `run_context.py` | 每次运行的输出路径管理，封装 IS/OOS 子目录结构 | 暴力穷举、组合分析 |
 | `fusion_engine.py` | 权重计算 (equal/icir/manual/dynamic)、信号融合 | 融合 |
 | `backtest_report.py` | 详尽回测分析报告生成 (复用 PortfolioAnalyzer) | 融合 |
 

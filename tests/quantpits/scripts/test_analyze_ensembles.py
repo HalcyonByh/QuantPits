@@ -83,8 +83,15 @@ def test_run_single_backtest_oos_exception(mock_env):
 def test_main(mock_env, tmp_path):
     analyze, workspace = mock_env
     
-    meta_path = tmp_path / "run_metadata_2020-01-01.json"
+    # Create new-style directory structure
+    run_dir = tmp_path / "brute_force_fast_2020-01-01"
+    is_dir = run_dir / "is"
+    oos_dir = run_dir / "oos"
+    is_dir.mkdir(parents=True)
+    oos_dir.mkdir(parents=True)
+    
     record_file = tmp_path / "train_records.json"
+    meta_path = run_dir / "run_metadata.json"
     
     meta_data = {
         "anchor_date": "2020-01-01",
@@ -100,8 +107,8 @@ def test_main(mock_env, tmp_path):
     with open(record_file, "w") as f:
         json.dump({"experiment": "test"}, f)
         
-    # Generate mock CSV for brute_force results
-    csv_path = tmp_path / "brute_force_fast_results_2020-01-01.csv"
+    # Generate mock CSV for IS results in the new location
+    csv_path = is_dir / "results.csv"
     df = pd.DataFrame({
         "models": ["m1", "m2", "m3", "m4", "m1,m2"],
         "n_models": [1, 1, 1, 1, 2],
@@ -115,7 +122,6 @@ def test_main(mock_env, tmp_path):
     
     import sys
     with patch.object(sys, 'argv', ['script.py', '--metadata', str(meta_path)]):
-        # We need to mock load_workspace_config from quantpits.utils.config_loader
         with patch('quantpits.scripts.analyze_ensembles.strategy.load_strategy_config', return_value={"benchmark": "SH000300", "strategy": {"params": {}}}):
             with patch('quantpits.scripts.analyze_ensembles.strategy.get_backtest_config', return_value={"account": 1000, "exchange_kwargs": {"freq": "day"}}):
                 with patch('quantpits.utils.config_loader.load_workspace_config', return_value={"TopK": 1, "DropN": 0}):
@@ -139,9 +145,10 @@ def test_main(mock_env, tmp_path):
                                 }
                                 with patch('builtins.print'):
                                     analyze.main()
-                                    # Should run smoothly and create the outputs with prefix
-                                    assert (tmp_path / "brute_force_fast_oos_multi_analysis_2020-01-01.csv").exists()
-                                    assert (tmp_path / "brute_force_fast_oos_report_2020-01-01.txt").exists()
+                                    # New structure: outputs go to oos/ subdirectory
+                                    assert (oos_dir / "oos_multi_analysis.csv").exists()
+                                    assert (oos_dir / "oos_report.txt").exists()
+                                    assert (run_dir / "summary.md").exists()
 
 def test_main_missing_oos_dates(mock_env, tmp_path):
     analyze, _ = mock_env
@@ -157,7 +164,7 @@ def test_main_missing_oos_dates(mock_env, tmp_path):
     with open(meta_path, "w") as f:
         json.dump(meta_data, f)
         
-    # Create the expected IS result file to avoid early sys.exit(1)
+    # Create the expected IS result file (legacy flat structure, _find_is_results_csv will look here)
     csv_path = tmp_path / "brute_force_results_2020.csv"
     pd.DataFrame({"models": ["m1"], "Ann_Excess": [0.1], "Ann_Ret": [0.1], "Calmar": [1], "Max_DD": [-0.1], "n_models": [1]}).to_csv(csv_path, index=False)
     
@@ -202,23 +209,25 @@ def test_generate_is_visualizations(mock_env, tmp_path):
     
     # Mock correlation matrix for diversity bonus coverage
     corr_df = pd.DataFrame({"m1": [1.0, 0.2], "m2": [0.2, 1.0]}, index=["m1", "m2"])
-    corr_path = tmp_path / "correlation_matrix_2020.csv"
+    corr_path = tmp_path / "correlation_matrix.csv"
     corr_df.to_csv(corr_path)
     
     with patch('matplotlib.pyplot.savefig'):
-        res_df = analyze.generate_is_visualizations_and_report(df, str(tmp_path), "2020", prefix="test_", top_n=2)
+        res_df = analyze.generate_is_visualizations_and_report(
+            df, str(tmp_path), "2020", top_n=2, corr_file=str(corr_path)
+        )
         assert "avg_corr" in res_df.columns
         assert "diversity_bonus" in res_df.columns
-        assert (tmp_path / "test_analysis_report_2020.txt").exists()
+        assert (tmp_path / "analysis_report.txt").exists()
 
 def test_generate_dendrogram(mock_env, tmp_path):
     analyze, _ = mock_env
     corr_df = pd.DataFrame({"m1": [1.0, 0.2], "m2": [0.2, 1.0]}, index=["m1", "m2"])
-    corr_path = tmp_path / "test_correlation_matrix_2020.csv"
+    corr_path = tmp_path / "correlation_matrix.csv"
     corr_df.to_csv(corr_path)
     
     with patch('matplotlib.pyplot.savefig'):
-        analyze.generate_dendrogram(str(tmp_path), "2020", prefix="test_")
+        analyze.generate_dendrogram(str(tmp_path), corr_file=str(corr_path))
 
 def test_generate_oos_visualizations(mock_env, tmp_path):
     analyze, _ = mock_env
@@ -228,7 +237,7 @@ def test_generate_oos_visualizations(mock_env, tmp_path):
         "Max_DD": [-0.05, -0.02]
     })
     with patch('matplotlib.pyplot.savefig'):
-        analyze.generate_oos_visualizations(oos_df, str(tmp_path), "2020", prefix="test_")
+        analyze.generate_oos_visualizations(oos_df, str(tmp_path))
 
 def test_main_training_mode_filter(mock_env, tmp_path):
     analyze, _ = mock_env
@@ -239,6 +248,7 @@ def test_main_training_mode_filter(mock_env, tmp_path):
             "record_file": "none", "oos_start_date": "none", "oos_end_date": "none"
         }, f)
     
+    # Legacy structure: LegacyRunContext will look in the same directory as metadata
     csv_path = tmp_path / "brute_force_results_2020.csv"
     pd.DataFrame({
         "models": ["m1@static", "m1@inc"], 
@@ -260,3 +270,55 @@ def test_main_training_mode_filter(mock_env, tmp_path):
             call_df = mock_vis.call_args[0][0]
             assert len(call_df) == 1
             assert call_df.iloc[0]["models"] == "m1@static"
+
+
+def test_find_is_results_csv(mock_env, tmp_path):
+    """Test the IS results CSV discovery function."""
+    analyze, _ = mock_env
+    from quantpits.utils.run_context import RunContext
+    
+    # New structure
+    ctx = RunContext(base_dir=str(tmp_path), script_name="brute_force", anchor_date="2026-04-03")
+    ctx.ensure_dirs()
+    
+    # Create results.csv in is/
+    pd.DataFrame({"models": ["m1"]}).to_csv(ctx.is_path("results.csv"), index=False)
+    
+    meta = {"anchor_date": "2026-04-03", "script_used": "brute_force_ensemble"}
+    found = analyze._find_is_results_csv(ctx, meta)
+    assert found is not None
+    assert found.endswith("results.csv")
+
+
+def test_generate_summary_md(mock_env, tmp_path):
+    """Test summary.md generation."""
+    analyze, _ = mock_env
+    from quantpits.utils.run_context import RunContext
+    
+    ctx = RunContext(base_dir=str(tmp_path), script_name="brute_force", anchor_date="2026-04-03")
+    ctx.ensure_dirs()
+    
+    meta = {
+        "anchor_date": "2026-04-03",
+        "script_used": "brute_force_ensemble",
+        "is_start_date": "2021-01-01",
+        "is_end_date": "2025-04-03",
+        "oos_start_date": None,
+        "oos_end_date": None,
+    }
+    
+    df = pd.DataFrame({
+        "models": ["m1", "m1,m2"],
+        "n_models": [1, 2],
+        "Ann_Excess": [0.1, 0.2],
+        "Max_DD": [-0.05, -0.08],
+        "Calmar": [2.0, 2.5],
+    })
+    
+    analyze.generate_summary_md(ctx, meta, df)
+    summary_path = ctx.run_path("summary.md")
+    assert os.path.exists(summary_path)
+    
+    content = open(summary_path).read()
+    assert "2026-04-03" in content
+    assert "brute_force_ensemble" in content

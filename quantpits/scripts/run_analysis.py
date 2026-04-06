@@ -396,9 +396,9 @@ def main():
                     report.append(f"- **{k}**: {v:.1f}")
                 else:
                     if k == 'Trade_Profit_Factor':
-                        report.append(f"- **{k}**: {v:.4f} *(已实现FIFO，不含期末持仓浮盈亏)*")
+                        report.append(f"- **{k}**: {v:.4f} *(FIFO implemented, excluding unrealized profit/loss of ending positions.)*")
                     elif k == 'Trade_Profit_Factor_MTM':
-                        report.append(f"- **{k}**: {v:.4f} *(盯市口径，含期末持仓浮盈亏)*")
+                        report.append(f"- **{k}**: {v:.4f} *(MTM implemented, including unrealized profit/loss of ending positions.)*")
                     else:
                         report.append(f"- **{k}**: {v:.4f}")
                 
@@ -480,7 +480,7 @@ def main():
                 report.append(f"  - Idiosyncratic Alpha (Stock Selection / Timing): {idio_alpha_single:.2%}")
                 
             report.append("\n### Performance Attribution (Multi-Factor Strict Alignment)")
-            report.append("- **Note**: 因子采用原始分位Long-Short代理构造，未经行业中性化或正交化处理，数值仅供参考*")
+            report.append("- **Note**: Factors are constructed using original quantile long-short proxies, without industry neutralization or orthogonalization; values ​​are for reference only.*")
             # Detect if multi-factor alignment truncated data
             alignment_note = ""
             if (single_factor_sample_size is not None and multi_factor_sample_size is not None

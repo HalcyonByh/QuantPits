@@ -359,8 +359,14 @@ def split_is_oos_by_args(norm_df, args):
 # Stage 2: 相关性分析
 # ============================================================================
 
-def correlation_analysis(norm_df, output_dir, anchor_date):
-    """计算并保存预测值相关性矩阵"""
+def correlation_analysis(norm_df, output_dir, anchor_date=None):
+    """计算并保存预测值相关性矩阵
+
+    Args:
+        norm_df: 归一化预测数据
+        output_dir: 输出目录 (通常是 RunContext.is_dir)
+        anchor_date: 可选日期后缀 (新结构下不再需要)
+    """
     print(f"\n{'='*60}")
     print("Stage 2: 相关性分析")
     print(f"{'='*60}")
@@ -370,7 +376,8 @@ def correlation_analysis(norm_df, output_dir, anchor_date):
     print(corr_matrix.round(4))
 
     # 保存
-    corr_path = os.path.join(output_dir, f"correlation_matrix_{anchor_date}.csv")
+    suffix = f"_{anchor_date}" if anchor_date else ""
+    corr_path = os.path.join(output_dir, f"correlation_matrix{suffix}.csv")
     corr_matrix.to_csv(corr_path)
     print(f"\n相关性矩阵已保存: {corr_path}")
 
@@ -558,8 +565,9 @@ def compute_metrics(net_returns, bench_returns_np, freq="day"):
 def brute_force_fast_backtest(
     scores_np, returns_np, model_names, bench_returns_np,
     top_k, freq, cost_rate, batch_size,
-    min_combo_size, max_combo_size, output_dir, anchor_date,
+    min_combo_size, max_combo_size, output_dir, anchor_date=None,
     resume=False, rebalance_freq=5, use_groups=False, group_config=None,
+    results_filename="results.csv",
 ):
     """
     向量化快速暴力穷举所有模型组合并回测。
@@ -604,7 +612,7 @@ def brute_force_fast_backtest(
     print(f"总组合数: {len(all_combinations)}")
 
     # Resume: 加载已有结果
-    csv_path = os.path.join(output_dir, f"brute_force_fast_results_{anchor_date}.csv")
+    csv_path = os.path.join(output_dir, results_filename)
     done_combos = set()
     existing_results = []
 
@@ -732,8 +740,8 @@ def main():
         help="回测交易频率 (默认: 从 model_config 读取)",
     )
     parser.add_argument(
-        "--output-dir", type=str, default="output/brute_force_fast",
-        help="输出目录 (默认: output/brute_force_fast)",
+        "--output-dir", type=str, default="output/ensemble_runs",
+        help="输出根目录 (默认: output/ensemble_runs)",
     )
     parser.add_argument(
         "--resume", action="store_true",
@@ -805,8 +813,15 @@ def main():
     drop_n = model_config.get("DropN", 3)
     benchmark = model_config.get("benchmark", "SH000300")
 
-    # 输出目录
-    os.makedirs(args.output_dir, exist_ok=True)
+    # 构建 RunContext
+    from quantpits.utils.run_context import RunContext
+    ctx = RunContext(
+        base_dir=args.output_dir,
+        script_name="brute_force_fast",
+        anchor_date=anchor_date,
+    )
+    ctx.ensure_dirs()
+    print(f"输出目录: {ctx.run_dir}")
 
     # Stage 1: 加载预测数据 (应用 training-mode 过滤)
     if getattr(args, 'training_mode', None):
@@ -824,7 +839,7 @@ def main():
         sys.exit(1)
 
     # Stage 2: 相关性分析
-    corr_matrix = correlation_analysis(is_norm_df, args.output_dir, anchor_date)
+    corr_matrix = correlation_analysis(is_norm_df, ctx.is_dir)
 
     # 确定调仓频率 (周频=5天, 日频=1天)
     rebalance_freq = 5 if freq == "week" else 1
@@ -857,8 +872,7 @@ def main():
         batch_size=args.batch_size,
         min_combo_size=args.min_combo_size,
         max_combo_size=args.max_combo_size,
-        output_dir=args.output_dir,
-        anchor_date=anchor_date,
+        output_dir=ctx.is_dir,
         resume=args.resume,
         rebalance_freq=rebalance_freq,
         use_groups=args.use_groups,
@@ -866,7 +880,7 @@ def main():
     )
 
     # 导出 Metadata
-    metadata_path = os.path.join(args.output_dir, f"run_metadata_{anchor_date}.json")
+    metadata_path = ctx.run_path("run_metadata.json")
     is_dates_all = is_norm_df.index.get_level_values("datetime")
     oos_dates_all = oos_norm_df.index.get_level_values("datetime")
     
@@ -890,11 +904,12 @@ def main():
             "group_config": args.group_config
         }, f, indent=4)
     print(f"\n✅ 元数据已保存: {metadata_path}")
-    print("请使用 quantpits/scripts/analyze_ensembles.py 单独进行分析与 OOS 验证。")
+    print(f"请使用以下命令进行分析与 OOS 验证:")
+    print(f"  python quantpits/scripts/analyze_ensembles.py --metadata {metadata_path}")
 
     print(f"\n{'='*60}")
     print(f"全部完成！ 耗时结束于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"输出目录: {args.output_dir}")
+    print(f"输出目录: {ctx.run_dir}")
     print(f"{'='*60}")
 
 
