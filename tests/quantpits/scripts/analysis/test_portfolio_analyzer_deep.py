@@ -11,7 +11,7 @@ import statsmodels.api as sm
 from unittest.mock import patch
 
 from quantpits.scripts.analysis.portfolio_analyzer import PortfolioAnalyzer
-from quantpits.utils.constants import TRADING_DAYS_PER_YEAR
+from quantpits.utils.constants import TRADING_DAYS_PER_YEAR, RISK_FREE_RATE_ANNUAL
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -236,14 +236,14 @@ class TestTraditionalMetrics:
     def test_sharpe(self, setup):
         pa, rets, _, _, _ = setup
         metrics = pa.calculate_traditional_metrics()
-        rf_daily = 0.0135 / TRADING_DAYS_PER_YEAR
+        rf_daily = RISK_FREE_RATE_ANNUAL / TRADING_DAYS_PER_YEAR
         expected_sharpe = ((np.mean(rets) - rf_daily) / np.std(rets, ddof=1)) * np.sqrt(TRADING_DAYS_PER_YEAR)
         assert np.isclose(metrics["Sharpe"], expected_sharpe, atol=1e-10)
 
     def test_sortino(self, setup):
         pa, rets, _, _, _ = setup
         metrics = pa.calculate_traditional_metrics()
-        rf_daily = 0.0135 / TRADING_DAYS_PER_YEAR
+        rf_daily = RISK_FREE_RATE_ANNUAL / TRADING_DAYS_PER_YEAR
         downside_dev = np.sqrt(np.mean(np.minimum(0, rets)**2))
         expected_sortino = ((np.mean(rets) - rf_daily) / downside_dev) * np.sqrt(TRADING_DAYS_PER_YEAR)
         assert np.isclose(metrics["Sortino"], expected_sortino, atol=1e-10)
@@ -535,7 +535,7 @@ class TestFactorExposure:
         market_return_full = market_close_full.pct_change().dropna()
         mkt_ret_series = market_return_full.loc[market_return_full.index.intersection(actual_returns.index)]
         
-        rf_daily = 0.0135 / TRADING_DAYS_PER_YEAR
+        rf_daily = RISK_FREE_RATE_ANNUAL / TRADING_DAYS_PER_YEAR
         port_excess = actual_returns - rf_daily
         mkt_excess = mkt_ret_series - rf_daily
 
@@ -605,7 +605,7 @@ class TestFactorExposure:
 
         actual_rets = pa.calculate_daily_returns()
         
-        rf_daily = 0.0135 / TRADING_DAYS_PER_YEAR
+        rf_daily = RISK_FREE_RATE_ANNUAL / TRADING_DAYS_PER_YEAR
         port_excess = actual_rets - rf_daily
         mkt_excess = market_return - rf_daily
         
@@ -664,7 +664,7 @@ class TestFactorExposure:
         internal_bench = pa.daily_amount["CSI300"].astype(float)
         market_return_full = internal_bench.pct_change().dropna()
         market_ret = market_return_full.loc[market_return_full.index.intersection(actual_rets.index)]
-        rf_daily = 0.0135 / TRADING_DAYS_PER_YEAR
+        rf_daily = RISK_FREE_RATE_ANNUAL / TRADING_DAYS_PER_YEAR
 
         aligned = pd.concat([actual_rets - rf_daily, market_ret - rf_daily], axis=1).dropna()
         aligned.columns = ["Portfolio", "Market"]
@@ -707,7 +707,7 @@ class TestFactorExposure:
         with patch('quantpits.scripts.analysis.portfolio_analyzer.load_market_config', return_value=("csi300", "SH000300")):
             result = pa.calculate_factor_exposure()
 
-        rf_annual = 0.0135
+        rf_annual = RISK_FREE_RATE_ANNUAL
         beta = result['Beta_Market']
         alpha = result['Annualized_Alpha']
         market_ann = result['Market_Total_Return_Annualized']
@@ -812,7 +812,7 @@ class TestStyleExposures:
         market_return_full = market_close_full.pct_change().dropna()
         market_ret = market_return_full.loc[market_return_full.index.intersection(actual_rets.index)]
 
-        aligned = pd.concat([actual_rets - (0.0135/TRADING_DAYS_PER_YEAR), market_ret - (0.0135/TRADING_DAYS_PER_YEAR), factor_df], axis=1).dropna()
+        aligned = pd.concat([actual_rets - (RISK_FREE_RATE_ANNUAL/TRADING_DAYS_PER_YEAR), market_ret - (RISK_FREE_RATE_ANNUAL/TRADING_DAYS_PER_YEAR), factor_df], axis=1).dropna()
         if len(aligned) < 2:
             # Not enough aligned data for regression — pass silently.
             return
@@ -889,7 +889,7 @@ class TestStyleExposures:
         if not result:
             return  # Not enough data for regression
 
-        rf_annual = 0.0135
+        rf_annual = RISK_FREE_RATE_ANNUAL
         multi_beta = result['Multi_Factor_Beta']
         alpha = result['Multi_Factor_Intercept']
         market_ann = result['Market_Total_Return_Annualized']
@@ -977,7 +977,7 @@ class TestStyleExposures:
         if aligned_n < full_n:
             # They CAN be equal by coincidence, but the key guarantee is that
             # the attribution identity holds with the ALIGNED return
-            rf_annual = 0.0135
+            rf_annual = RISK_FREE_RATE_ANNUAL
             multi_beta = result['Multi_Factor_Beta']
             alpha = result['Multi_Factor_Intercept']
             market_ann = result['Market_Total_Return_Annualized']

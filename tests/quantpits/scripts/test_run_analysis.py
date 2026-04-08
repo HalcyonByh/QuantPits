@@ -475,7 +475,7 @@ def test_main_performance_attribution(mock_exec, mock_port, mock_fwd, mock_load_
     # Beta=1.2, single-factor market_ann = 0.12 (from calculate_factor_exposure)
     # beta_ret_single = 1.2 * 0.12 = 0.144 = 14.40%
     assert "Beta Return (Exposure to Market): 14.40%" in content
-    # rf(1-β) = 0.0135 * (1-1.2) = -0.0027 = -0.27%
+    # rf(1-β) = RISK_FREE_RATE_ANNUAL * (1-1.2) = -0.0027 = -0.27%
     assert "Risk-Free Component" in content
     assert "Avg_Daily_Holdings_Count**: 42.4" in content
     assert "Multi_Factor_R_Squared**: 0.8500" in content

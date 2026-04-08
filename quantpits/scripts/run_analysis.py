@@ -9,7 +9,7 @@ from datetime import datetime
 
 # Adjust path so we can import analysis module
 from quantpits.utils import env
-from quantpits.utils.constants import MONTHS_PER_YEAR
+from quantpits.utils.constants import MONTHS_PER_YEAR, RISK_FREE_RATE_ANNUAL
 os.chdir(env.ROOT_DIR)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -429,7 +429,7 @@ def main():
                 
         if metrics.get('CAGR_252') is not None and metrics.get('Benchmark_CAGR_252') is not None and not pd.isna(metrics.get('CAGR_252')):
             cagr = metrics['CAGR_252']
-            rf_annual = 0.0135
+            rf_annual = RISK_FREE_RATE_ANNUAL
             
             # Independently-computed portfolio arithmetic annual return (consistent constant)
             portfolio_arith = metrics.get('Portfolio_Arithmetic_Annual_Return')

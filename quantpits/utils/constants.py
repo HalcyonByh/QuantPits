@@ -15,3 +15,6 @@ AVERAGE_CALENDAR_DAYS_PER_YEAR = 365.25
 
 # Months per year
 MONTHS_PER_YEAR = 12
+
+# Annual risk-free rate (annualized), referenced from China's 1-year benchmark deposit rate
+RISK_FREE_RATE_ANNUAL = 0.0135

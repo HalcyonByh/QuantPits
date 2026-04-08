@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 from .utils import load_daily_amount, get_daily_features, load_holding_log, load_market_config
-from quantpits.utils.constants import TRADING_DAYS_PER_YEAR, TRADING_WEEKS_PER_YEAR, CALENDAR_DAYS_PER_YEAR
+from quantpits.utils.constants import TRADING_DAYS_PER_YEAR, TRADING_WEEKS_PER_YEAR, CALENDAR_DAYS_PER_YEAR, RISK_FREE_RATE_ANNUAL
 
 # Metric Keys Contract
 BARRA_LIQD_KEY = 'Barra_Liquidity_Exp_(High-Low)'
@@ -204,7 +204,7 @@ class PortfolioAnalyzer:
                 benchmark_max_dd = bench_drawdowns.min()
                 
                 benchmark_volatility = bench_ret.std() * np.sqrt(self.periods_per_year)
-                rf_daily = 0.0135 / self.periods_per_year
+                rf_daily = RISK_FREE_RATE_ANNUAL / self.periods_per_year
                 benchmark_sharpe = ((bench_ret.mean() - rf_daily) / bench_ret.std()) * np.sqrt(self.periods_per_year) if bench_ret.std() != 0 else 0
                 benchmark_calmar = benchmark_cagr_252 / abs(benchmark_max_dd) if benchmark_max_dd < 0 and benchmark_max_dd != 0 else np.nan
                 
@@ -526,7 +526,7 @@ class PortfolioAnalyzer:
             return {}
             
         # Deduct risk-free rate for true excess-return CAPM regression
-        rf_daily = 0.0135 / self.periods_per_year
+        rf_daily = RISK_FREE_RATE_ANNUAL / self.periods_per_year
         market_ret_total = aligned['Market'].copy()
         # Capture the aligned portfolio total return BEFORE subtracting rf
         aligned_portfolio_total = aligned['Portfolio'].copy()
@@ -641,7 +641,7 @@ class PortfolioAnalyzer:
             factor_annualized[col] = float(aligned[col].mean() * self.periods_per_year)
             
         # Deduct risk-free rate from Portfolio and Market for Excess-Return multi-factor regression
-        rf_daily = 0.0135 / self.periods_per_year
+        rf_daily = RISK_FREE_RATE_ANNUAL / self.periods_per_year
         market_ret_total = aligned['Market'].copy()
         # Capture the aligned portfolio total return BEFORE subtracting rf
         aligned_portfolio_total = aligned['Portfolio'].copy()

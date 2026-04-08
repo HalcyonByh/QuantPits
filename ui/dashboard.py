@@ -16,6 +16,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from quantpits.scripts import env
+from quantpits.utils.constants import TRADING_DAYS_PER_YEAR, RISK_FREE_RATE_ANNUAL
 os.chdir(env.ROOT_DIR)
 
 # Must initialize Qlib before importing analyzers if they fetch data
@@ -110,10 +111,10 @@ def render_macro_performance(port_a, returns, market):
     
     # 3. Rolling Metrics (20-Day Sharpe)
     rolling_window = 20
-    rf_daily = 0.0135 / 252
+    rf_daily = RISK_FREE_RATE_ANNUAL / TRADING_DAYS_PER_YEAR
     
-    rolling_sharpe = ((returns.rolling(window=rolling_window).mean() - rf_daily) / returns.rolling(window=rolling_window).std()) * np.sqrt(252)
-    rolling_alpha = (returns.rolling(window=rolling_window).mean() - bench_returns.rolling(window=rolling_window).mean()) * 252
+    rolling_sharpe = ((returns.rolling(window=rolling_window).mean() - rf_daily) / returns.rolling(window=rolling_window).std()) * np.sqrt(TRADING_DAYS_PER_YEAR)
+    rolling_alpha = (returns.rolling(window=rolling_window).mean() - bench_returns.rolling(window=rolling_window).mean()) * TRADING_DAYS_PER_YEAR
     
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(x=rolling_sharpe.index, y=rolling_sharpe.values, mode='lines', name=f'{rolling_window}d Sharpe', line=dict(color='purple')))
