@@ -6,7 +6,7 @@
 
 **Multi-Combo Mode Supported**: Define multiple combos in `config/ensemble_config.json`, mark one as `default`, and run all combinations to compare performance simultaneously.
 
-**Workflow Pipeline Placement**: Training → Brute Force → Combo Selection → **Fusion Backtesting (This Step)** → Order Generation
+**Workflow Pipeline Placement**: Training → Ensemble Search → Combo Selection → **Fusion Backtesting (This Step)** → Order Generation / Signal Ranking
 
 ## Quick Start
 
@@ -80,6 +80,39 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 - **Exactly one** combo must be flagged as `"default": true`.
 - Script remains backward compatible with older flat formats (single `models` array + `ensemble_method`).
 
+## Configuring Ensembles from Search Results
+
+Once you have identified recommended model combinations through brute force searching (see [02_BRUTE_FORCE_GUIDE](02_BRUTE_FORCE_GUIDE.md)), follow these steps to use them in the production pipeline:
+
+### Step 1: Review search reports
+Open the summary report in your run directory: `output/ensemble_runs/{your_run}/summary.md`. Look for combinations that perform well across both In-Sample (IS) and Out-Of-Sample (OOS) metrics.
+
+### Step 2: Update `ensemble_config.json`
+Select 2-3 robust combinations and add them to the `combos` section of `config/ensemble_config.json`. 
+
+Example of mapping from `summary.md` to `ensemble_config.json`:
+If `summary.md` shows a top combo with models `gru_Alpha158, transformer_Alpha360`, your config should look like:
+```json
+"combos": {
+  "stable_growth": {
+    "models": ["gru_Alpha158", "transformer_Alpha360"],
+    "method": "equal",
+    "default": true
+  }
+}
+```
+
+### Step 3: Verify and Set Default
+Run the fusion script to compare all configured combos:
+```bash
+python quantpits/scripts/ensemble_fusion.py --from-config-all
+```
+Review the comparisons in `output/ensemble/combo_comparison_{date}.csv` and mark your preferred combo as `"default": true` for subsequent order generation.
+
+> [!TIP]
+> Selected combinations are intended to be persistent. You only need to re-run the search phase if you add or remove models, or if the market regime shifts significantly after retraining.
+
+
 ## Execution Modes
 
 ### Single Combo Mode
@@ -104,7 +137,17 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 
 ### OOS (Out-Of-Sample) Verification Testing
 
-If you utilized parameters like `--exclude-last-years 1` during the combo-seeking phase (via `brute_force_fast.py`) to fence off this year's data as OOS, you can leverage the following command to exclusively test pure forward OOS extrapolation performance just before taking the combo live:
+If you utilized parameters like `--exclude-last-years 1` during the combo-seeking phase (via `brute_force_fast.py`) to fence off this year's data as OOS, you can leverage the following command to exclusively test pure forward OOS extrapolation performance just before taking the combo live.
+
+> [!IMPORTANT]
+> **Comparison of OOS Validation Scenarios**
+> | Phase | Tool | Purpose | Source |
+> |------|------|------|------|
+> | **Search Phase** | `brute_force --exclude-last-years` + `analyze_ensembles.py` | Prevent IS overfitting among **thousands of candidates**. | [02_GUIDE](02_BRUTE_FORCE_GUIDE.md) |
+> | **Pre-deployment** | `ensemble_fusion.py --only-last-years` | Final verification of **selected candidates** on OOS data. | This Section |
+
+You can execute performance tests exclusively bounding the recent 1 year OOS trajectory:
+
 
 ```bash
 # ========================================

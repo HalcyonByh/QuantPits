@@ -1,4 +1,4 @@
-# Brute Force Ensemble Backtesting Guide
+# Ensemble Search and Backtesting Guide
 
 Automates the exhaustive combinatorial tracking of all model predictions, executing equal-weighted fusion backtests on each subset to uncover the optimal model ensemble pipeline.
 
@@ -35,7 +35,7 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - Evaluates prediction correlation matrices.
 - Saves raw correlation CSVs for subsequent debugging.
 
-### Stage 3 — Brute Force Backtesting
+### Stage 3 — Ensemble Search Backtesting
 - Generates all valid combinatorial subset models (from 1 to N).
 - For each subset combo: Equal-weight fusion → TopkDropoutStrategy → Native Qlib Simulation.
 - Extracts core portfolio mechanics: Annualized Return, Max Drawdown, Calmar Ratio, Excess Return.
@@ -45,14 +45,14 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - After exhaustion, a `run_metadata.json` is generated under `output/ensemble_runs/{script}_{date}/`, capturing the exact environment context and date splits.
 
 ### Stage 5 — Decoupled OOS Analysis
-- Brute force is fundamentally In-Sample (IS). All analysis and Out-Of-Sample (OOS) validation logics have been moved to the decoupled `analyze_ensembles.py` script.
+- Ensemble search is fundamentally In-Sample (IS). All analysis and Out-Of-Sample (OOS) validation logics have been moved to the decoupled `analyze_ensembles.py` script.
 - Executing `python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json` constructs multidimensional candidate pools (Yield, Robustness, MVP) and runs completely blind OOS evaluation.
 - After analysis completes, `summary.md` is auto-generated in the run directory, containing IS/OOS key metrics and a file inventory.
 
 > [!NOTE]
 > **Understanding Metric Discrepancies: Single Models vs. Ensemble Backtests**
 >
-> When evaluating model performance within fusion and brute-force architectures, strict **Z-Score Normalization** and **Data Alignment** processing govern the engine. Therefore, because of TopK position bounding, backtest results of a single model here may exhibit reasonable, micro-level disparities from the raw metrics evaluated naturally post-training (e.g. via `run_analysis.py`):
+> When evaluating model performance within fusion and ensemble search architectures, strict **Z-Score Normalization** and **Data Alignment** processing govern the engine. Therefore, because of TopK position bounding, backtest results of a single model here may exhibit reasonable, micro-level disparities from the raw metrics evaluated naturally post-training (e.g. via `run_analysis.py`):
 > 1. **Isolated Normalization**: Each model calculates its daily cross-sectional Z-scores purely on its *own* non-null predicted universe. Scaling remains mathematically uniform, and a single model's signal scale cannot be skewed by other models' data coverage gaps prior to scoring.
 > 2. **Delayed Intersection**: Strict intersection dropping (`dropna(how='any')`) is executed strictly at the exact combo scoring phase and is limited precisely to the subset of models within that specific combo iteration. This guarantees irrelevant sub-models don't unilaterally shrink the evaluated combination universe.
 > 3. **Benchmarking Alignment**: The sub-model evaluation leaderboard dynamically slices historical records to match the precise temporal boundaries established by the current ensemble matrix index. This constructs a perfect "apples-to-apples" comparison avoiding overlapping timeframe distortion.
@@ -392,3 +392,58 @@ output/ensemble_runs/brute_force_fast_2026-04-03/
 > # Execute (original directories are preserved — clean up manually after verification)
 > python quantpits/scripts/migrate_ensemble_outputs.py
 > ```
+
+---
+
+## Next Steps: Configuring Ensemble Fusion
+
+Once you have completed the ensemble search and analysis, move to the formal Ensemble Fusion phase.
+
+### Step 1: Review the Analysis Reports
+
+Identify top-performing combinations from your run directory:
+
+```bash
+# One-page summary (IS/OOS rankings + file list)
+cat output/ensemble_runs/<run_dir>/summary.md
+
+# Detailed OOS validation report
+cat output/ensemble_runs/<run_dir>/oos/oos_report.txt
+```
+
+### Step 2: Add Selected Combos to Configuration
+
+Copy the model names from the report into `config/ensemble_config.json`:
+
+```json
+{
+  "combos": {
+    "combo_A": {
+      "models": ["gru", "linear_Alpha158", "TabNet_Alpha158"],
+      "method": "equal",
+      "default": true,
+      "description": "High Calmar combo (from OOS validation)"
+    },
+    "combo_B": {
+      "models": ["alstm_Alpha158", "linear_Alpha158", "sfm_Alpha360"],
+      "method": "icir_weighted",
+      "default": false,
+      "description": "Low-correlation diversified combo"
+    }
+  },
+  "min_model_ic": 0.00
+}
+```
+
+> [!TIP]
+> We recommend configuring 2-3 candidates with different strengths (e.g., high return vs. high robustness). These selections can be used for many cycles without needing to re-search.
+
+### Step 3: Run Formal Fusion Backtests
+
+```bash
+# Run all combos and generate inter-combo comparison
+python quantpits/scripts/ensemble_fusion.py --from-config-all
+```
+
+> For detailed config formatting and instructions, see [03_ENSEMBLE_FUSION_GUIDE](03_ENSEMBLE_FUSION_GUIDE.md).
+

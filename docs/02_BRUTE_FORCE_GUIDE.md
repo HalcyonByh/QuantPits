@@ -1,6 +1,6 @@
-# 暴力穷举组合回测指南
+# 组合搜索组合回测指南
 
-将所有模型的预测进行暴力组合穷举，对每个组合做等权融合回测，找到最优模型组合。
+将所有模型的预测进行组合搜索，对每个组合做等权融合回测，找到最优模型组合。
 
 ## 快速开始
 
@@ -10,14 +10,14 @@ cd /path/to/QuantPits
 # 快速测试（最多 3 个模型的组合，约 175 次回测）
 python quantpits/scripts/brute_force_ensemble.py --max-combo-size 3
 
-# 完整穷举（10 个模型 = 1023 个组合，耗时较长）
+# 全量搜索（10 个模型 = 1023 个组合，耗时较长）
 python quantpits/scripts/brute_force_ensemble.py
 
 
 # 从上次中断处继续（Ctrl+C 中断或崩溃后均可）
 python quantpits/scripts/brute_force_ensemble.py --resume
 
-# 使用模型分组穷举（每组只选一个，大幅减少组合数）
+# 使用模型分组搜索（每组只选一个，大幅减少组合数）
 python quantpits/scripts/brute_force_ensemble.py --use-groups
 
 # 指定自定义分组 + 减少线程数控制内存
@@ -35,24 +35,24 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 - 计算预测值相关性矩阵
 - 保存 CSV 供后续分析
 
-### Stage 3 — 暴力穷举回测
+### Stage 3 — 组合搜索回测
 - 生成所有模型组合（从 1 个到 N 个）
 - 对每个组合：等权融合 → TopkDropoutStrategy → Qlib 回测
 - 提取指标：年化收益、最大回撤、Calmar、超额收益等
 - 支持 `--resume` 从已有 CSV 继续
 
 ### Stage 4 — 元数据导出
-- 穷举结束后，将在 `output/ensemble_runs/{script}_{date}/` 目录下生成 `run_metadata.json`，供独立分析脚本消费。
+- 搜索结束后，将在 `output/ensemble_runs/{script}_{date}/` 目录下生成 `run_metadata.json`，供独立分析脚本消费。
 
 ### Stage 5 — 独立多维分析与 OOS 验证
-- 穷举本质上是 In-Sample (IS) 寻优。所有分析、挑选和 Out-Of-Sample (OOS) 验证逻辑解耦到了独立的 `analyze_ensembles.py` 脚本中。
+- 搜索本质上是 In-Sample (IS) 寻优。所有分析、挑选和 Out-Of-Sample (OOS) 验证逻辑解耦到了独立的 `analyze_ensembles.py` 脚本中。
 - 通过运行 `python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/brute_force_fast_<date>/run_metadata.json`，系统将基于 Yield, Robustness, MVP 等多维度构建候选池，并在 OOS 数据上自动且无偏地打分排名。
 - 分析完成后，在 run 目录内自动生成 `summary.md` 一页纸摘要，包含 IS/OOS 关键指标和文件清单。
 
 > [!NOTE]
 > **关于单模型表现与融合回测的评测差异说明**
 >
-> 融合与穷举脚本在评估模型表现时，引入了严格的 **Z-Score 归一化**（Z-Score Normalization）和 **数据对齐**（Data Alignment）处理，因此由于 TopK 截断的存在，单模型在此处的回测结果可能与训练期间通过 `run_analysis.py` 查看到的原始预测分值回测结果存在合理且微小的差异：
+> 融合与搜索脚本在评估模型表现时，引入了严格的 **Z-Score 归一化**（Z-Score Normalization）和 **数据对齐**（Data Alignment）处理，因此由于 TopK 截断的存在，单模型在此处的回测结果可能与训练期间通过 `run_analysis.py` 查看到的原始预测分值回测结果存在合理且微小的差异：
 > 1. **独立归一化隔离**：每个模型的预测分值会首先仅基于自身非为空的预测股票池进行按天的 Z-Score 归一化处理。这保证了模型之间的评分尺度统一，且某个模型的数据缺失不会影响并在归一化前污染其他模型的分布。
 > 2. **延迟交集对齐**：仅在计算最终特定组合的均值或加权打分时，系统才会对当前组合涉及的模型取交集（即执行 `dropna(how='any')`），这避免了无关模型的数据缺失引发当前组合评测池的不当缩水。
 > 3. **评估排名的对齐**：所有提供参照的基准数据（如单模型的历史排行榜回测指标）均会严格根据当前评价矩阵实际生成的时间窗口进行动态切片对齐，从而为您提供“同时间段”的一致性比对。
@@ -71,7 +71,7 @@ python quantpits/scripts/brute_force_ensemble.py --use-groups --group-config con
 | `--resume` | - | 从已有 CSV 继续（支持崩溃/中断后恢复） |
 | `--n-jobs` | `4` | 并发回测线程数 |
 | `--batch-size` | `50` | 每批处理组合数（影响 checkpoint 粒度和内存） |
-| `--use-groups` | - | 启用分组穷举模式（每组只选一个模型） |
+| `--use-groups` | - | 启用分组搜索模式（每组只选一个模型） |
 | `--group-config` | `config/combo_groups.yaml` | 分组配置文件路径 |
 
 ## 输出文件
@@ -390,3 +390,61 @@ output/ensemble_runs/brute_force_fast_2026-04-03/
 > # 执行（原目录不删除，确认后可手动清理）
 > python quantpits/scripts/migrate_ensemble_outputs.py
 > ```
+
+---
+
+## 下一步：配置融合组合
+
+组合搜索和 OOS 验证完成后，进入正式的融合预测阶段：
+
+### 步骤 1：查看分析报告
+
+打开本次运行目录下的报告，确认候选组合：
+
+```bash
+# 一页纸摘要（IS/OOS 排名 + 文件清单）
+cat output/ensemble_runs/<run_dir>/summary.md
+
+# 或用浏览器打开 HTML 版（表格更完整）
+# output/ensemble_runs/<run_dir>/summary.html
+
+# OOS 详细验证报告
+cat output/ensemble_runs/<run_dir>/oos/oos_report.txt
+```
+
+### 步骤 2：将选定组合写入配置
+
+从报告的 `models` 列中复制组合成员，编辑 `config/ensemble_config.json`：
+
+```json
+{
+  "combos": {
+    "combo_A": {
+      "models": ["gru", "linear_Alpha158", "TabNet_Alpha158"],
+      "method": "equal",
+      "default": true,
+      "description": "高 Calmar 组合（来自 OOS 验证）"
+    },
+    "combo_B": {
+      "models": ["alstm_Alpha158", "linear_Alpha158", "sfm_Alpha360"],
+      "method": "icir_weighted",
+      "default": false,
+      "description": "低相关性多样化组合"
+    }
+  },
+  "min_model_ic": 0.00
+}
+```
+
+> [!TIP]
+> 建议配置 2-3 个候选组合，涵盖不同维度（如高收益、高稳健、低相关性）。
+> 选好的组合可持续使用多个周期，无需每次重新穷举。
+
+### 步骤 3：运行正式融合回测
+
+```bash
+# 运行所有 combo 并生成跨组合对比，最终确认 default
+python quantpits/scripts/ensemble_fusion.py --from-config-all
+```
+
+> 详细的配置格式和融合回测说明，请参阅 [03_ENSEMBLE_FUSION_GUIDE](03_ENSEMBLE_FUSION_GUIDE.md)。

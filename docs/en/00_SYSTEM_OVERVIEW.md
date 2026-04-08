@@ -28,14 +28,14 @@ Every step in this system is **optional and combinable**. Only "Prediction" and 
 |------|:---:|------|
 | ① Training | ⚠️ At least once | Mandatory for the first time; subsequently only when models need refreshing |
 | ② Prediction | ✅ Every time | Can be produced along with training, or run independently with existing models |
-| ③ Brute Force | ❌ Occasionally | Very time-consuming; a selected combo can be used for a long period |
+| ③ Ensemble Search | ❌ Occasionally | Exhaustive combinatorial search + multi-dimensional analysis; selected combos can be used for long periods |
 | ④ Fusion Prediction | ✅ Every time | Supports multi-combo fusion and comparison; generates final fusion signals using selected combos |
 | ⑤ Post-Trade | ✅ Every time | Processes last period's live data to update holdings and cash |
 | ⑥ Order Generation | ✅ Every time | Generates buy/sell suggestions and multi-model opinions based on fused predictions and current holdings |
 | ⑦ Signal Ranking | Optional | Normalizes scores into Top N rankings, suitable for sharing |
 
 > [!IMPORTANT]
-> Training is not required every time, but prediction is mandatory. Brute forcing combinations is a "heavy-duty" operation, and selected model combos can be used for a long time. The minimal routine operation loop is: **Prediction → Fusion → Post-Trade → Order Generation**.
+> Training is not required every time, but prediction is mandatory. **Ensemble Search** is a "heavy-duty" operation, and selected model combos can be used for a long time. The minimal routine operation loop is: **Prediction → Fusion → Post-Trade → Order Generation**.
 
 ---
 
@@ -56,10 +56,13 @@ flowchart TB
         PO["static_train.py --predict-only<br/>Predict Only"]
     end
 
-    subgraph BRUTEFORCE["③ Brute Force (Occasionally)"]
+    subgraph SEARCH["③ Ensemble Search (Occasionally)"]
         BF["brute_force_ensemble.py<br/>Exact Backtest"]
         BFF["brute_force_fast.py<br/>Fast Screening"]
+        AE["analyze_ensembles.py<br/>Multi-dim Analysis + OOS Validation"]
     end
+
+    EC["ensemble_config.json<br/>Combo Config (Manual Edit)"]
 
     subgraph FUSION["④ Fusion Predict (Every time/Multi-combo)"]
         EF["ensemble_fusion.py<br/>--from-config-all / --combo"]
@@ -85,6 +88,7 @@ flowchart TB
     LTR["latest_train_records.json<br/>Train Records"]
     LRR["latest_train_records.json<br/>Unified Train Records<br/>(incl. @rolling)"]
     PRED_REC["output/predictions/<br/>Prediction Recorders"]
+    ER["ensemble_records.json<br/>Fusion Record Pointer"]
     WC["prod_config.json<br/>Holdings/Cash"]
 
     REG --> TRAIN
@@ -93,20 +97,23 @@ flowchart TB
     TRAIN --> LTR
     PREDICT --> LTR
     ROLLING --> LRR
-    LTR --> BRUTEFORCE
+    LTR --> SEARCH
     LTR --> FUSION
-    LRR -.->|--training-mode rolling| BRUTEFORCE
+    LRR -.->|--training-mode rolling| SEARCH
     LRR -.->|--training-mode rolling| FUSION
-    FUSION --> PRED_REC
+    BFF --> AE
+    BF --> AE
+    AE -.->|Recommended Combos → Manual Edit| EC
+    EC --> EF
     PREDICT --> PRED_REC
-    PRED_REC --> ORDERGEN
-    PRED_REC --> SR
+    PRED_REC -.->|--model Single Model| ORDERGEN
     PRED_REC --> AN
+    EF --> ER
+    ER --> ORDERGEN
+    ER --> SR
     PT --> WC
     WC --> ORDERGEN
     WC -.->|daily_amount| AN
-    BFF -.->|Selected Combos| EF
-    BF -.->|Selected Combos| EF
 ```
 
 ---
@@ -127,7 +134,7 @@ Suitable for the first run or when models need to be refreshed.
 # ① Full Training (Outputs predictions + training records)
 python quantpits/scripts/static_train.py --full
 
-# ③ Brute force combo search (Optional, very time-consuming)
+# ③ Ensemble Search (Optional, time-consuming)
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # ④ Fusion Prediction (Using chosen combo)
@@ -191,7 +198,7 @@ Re-run brute force periodically or when current combos are unsuitable.
 # ② Predict using existing models (or automatically outputted after training)
 python quantpits/scripts/static_train.py --predict-only --all-enabled
 
-# ③ Fast Brute Force Screening
+# ③ Fast Ensemble Search Screening
 python quantpits/scripts/brute_force_fast.py --max-combo-size 5
 
 # ③ Exact backtesting on Top candidates for confirmation
@@ -267,7 +274,7 @@ python quantpits/scripts/ensemble_fusion.py \
 - Supports the same model selection methods as training scripts (by name/algo/tags)
 - **Incremental Merge** to update `latest_train_records.json`, making downstream script switching seamless
 
-### ③ Brute Force Module
+### ③ Ensemble Search Module
 
 > See details in [02_BRUTE_FORCE_GUIDE.md](02_BRUTE_FORCE_GUIDE.md)
 
@@ -275,11 +282,12 @@ python quantpits/scripts/ensemble_fusion.py \
 |------|------|------|
 | `brute_force_fast.py` | Vectorized fast screening | ~0.001s/combo |
 | `brute_force_ensemble.py` | Full Qlib Backtesting | ~5s/combo |
+| `analyze_ensembles.py` | Multi-dimensional IS Analysis + OOS Blind Validation | As needed |
 
-- **Recommended Workflow**: Use the fast script to rough-screen all combos, then use the original script to accurately verify top candidates
-- Outputs model attribution analysis, risk-return scatter plots, hierarchical clustering, etc.
-- Outputs are neatly organized per-run under `output/ensemble_runs/{script}_{date}/` stratified into IS and OOS layers.
-- Supports `--resume` to continue running
+- **Recommended Workflow**: Fast screening → `analyze_ensembles.py` for multi-dimensional analysis & OOS validation → Configure selected combos in `ensemble_config.json`.
+- Outputs model attribution reports, risk-return scatter plots, hierarchical clustering charts, etc.
+- Results are neatly organized per-run under `output/ensemble_runs/{script}_{date}/`, stratified into IS and OOS layers.
+- Supports `--resume` for crash recovery.
 
 ### ④ Fusion Prediction Module
 
@@ -355,22 +363,30 @@ python quantpits/scripts/ensemble_fusion.py \
 latest_train_records.json   prod_config.json (Update Pos/Cash)
          │                             │
          ▼                             │
-  ┌──────────────────┐                 │
-  │ Brute Force (Opt)│                 │
-  │ brute_force_*.py │                 │
-  └────────┬─────────┘                 │
-           │ Selected Combo            │
-           ▼                           │
-  ┌──────────────────┐                 │
-  │ Ensemble Fusion  │                 │
-  │ ensemble_fusion  │                 │
-  └────────┬─────────┘                 │
-           │ Fusion Recorder         │
-           ▼                           ▼
+   ┌──────────────────┐                 │
+   │ Ensemble Search    │                 │
+   │ brute_force_*.py │                 │
+   │ analyze_*.py     │                 │
+   └────────┬─────────┘                 │
+            │ Recommended Combos        │
+            ▼                           │
+   ensemble_config.json                 │
+            │                           │
+            ▼                           │
+   ┌──────────────────┐                 │
+   │ Ensemble Fusion  │                 │
+   │ ensemble_fusion  │                 │
+   └────────┬─────────┘                 │
+            │                           │
+            ▼                           │
+   ensemble_records.json                │
+   (combo → recorder_id)                │
+            │                           ▼
+            ▼                           ▼
   ┌────────────────────────────────────────┐
   │ Order Generation                       │
   │ order_gen.py                           │
-  │ Input: Predict Recorder + Pos/Cash          │
+  │ Input: ensemble_records + Pos/Cash     │
   │ Output: buy/sell_suggestion_*.csv      │
   └────────────────────────────────────────┘
 ```
@@ -389,6 +405,7 @@ latest_train_records.json   prod_config.json (Update Pos/Cash)
 | `prod_config.json` | Live State: Holdings, Cash, Processing state | Post-Trade, Order Gen |
 | `cashflow.json` | Cashflow Records: Deposits/Withdrawals by date | Post-Trade |
 | `ensemble_config.json` | Multi-combo Config: Combo definitions, weights, defaults | Fusion, Order Gen, Ranking |
+| `ensemble_records.json` | Fusion Record Pointer: Mapping from combo to recorder_id + default flag | Fusion, Order Gen, Ranking |
 | `rolling_config.yaml` | Rolling Training Params: Start date, train/valid years, step size | Rolling Train |
 | `workflow_config_*.yaml` | Qlib Workflows: Training configurations for each model | Train |
 
@@ -433,7 +450,7 @@ latest_train_records.json   prod_config.json (Update Pos/Cash)
 |:---:|------|------|
 | 00 | [This Doc](00_SYSTEM_OVERVIEW.md) | System overview, architecture, typical scenarios, module cheat sheet |
 | 01 | [TRAINING_GUIDE](01_TRAINING_GUIDE.md) | Full training, incremental training, model registry management |
-| 02 | [BRUTE_FORCE_GUIDE](02_BRUTE_FORCE_GUIDE.md) | Brute force combo backtesting (Standard + Fast vectors) |
+| 02 | [BRUTE_FORCE_GUIDE](02_BRUTE_FORCE_GUIDE.md) | Ensemble Search and Backtesting (Standard + Fast vectors) |
 | 03 | [ENSEMBLE_FUSION_GUIDE](03_ENSEMBLE_FUSION_GUIDE.md) | Model fusion prediction, weighting schemes, tracking |
 | 04 | [POST_TRADE_GUIDE](04_POST_TRADE_GUIDE.md) | Live trading data processing, holding/capital updates |
 | 05 | [PREDICT_ONLY_GUIDE](05_PREDICT_ONLY_GUIDE.md) | Prediction only (no retrain), update train records |
@@ -452,14 +469,14 @@ The `quantpits/utils/` directory provides shared capabilities for all scripts, e
 | Module | Purpose | Consumers |
 |------|------|----------|
 | `train_utils.py` | Date calculus, YAML injection, model registry, record merging, history backups | Training, Prediction |
-| `predict_utils.py` | Prediction data load/save, Recorder management | Prediction, Fusion, Brute Force |
+| `predict_utils.py` | Prediction data load/save, Recorder management | Prediction, Fusion, Ensemble Search |
 | `config_loader.py` | Workspace-level config loading | Global |
-| `strategy.py` | Strategy config / backtest strategy construction | Brute Force, Fusion, Analysis |
-| `backtest_utils.py` | Qlib backtest execution and evaluation | Brute Force, Fusion, Analysis |
+| `strategy.py` | Strategy config / backtest strategy construction | Ensemble Search, Fusion, Analysis |
+| `backtest_utils.py` | Qlib backtest execution and evaluation | Ensemble Search, Fusion, Analysis |
 | `env.py` | Qlib initialization, working directory management | Global |
 | `ensemble_utils.py` | Ensemble config parsing, combo management, records loading | Fusion, Signal Ranking, Order Gen |
-| `search_utils.py` | Combo search shared logic: signal handling, backtest core, IS/OOS splitting, grouped combinations | Brute Force (Standard/Fast), MinEntropy, Analysis |
-| `run_context.py` | Encapsulates per-run output directory management and IS/OOS stratifications | Brute Force, Analysis |
+| `search_utils.py` | Combo search shared logic: signal handling, backtest core, IS/OOS splitting, grouped combinations | Ensemble Search (Standard/Fast), MinEntropy, Analysis |
+| `run_context.py` | Encapsulates per-run output directory management and IS/OOS stratifications | Ensemble Search, Analysis |
 | `fusion_engine.py` | Weight calculation (equal/icir/manual/dynamic), signal fusion | Fusion |
 | `backtest_report.py` | Detailed backtest analysis reports (using PortfolioAnalyzer) | Fusion |
 
@@ -487,7 +504,7 @@ The `quantpits/utils/` directory provides shared capabilities for all scripts, e
 - Entirely new models are registered which necessitate a first-time fit
 - Need to validate results following massive hyperparameter optimizations
 
-### When is brute-forcing configurations necessary?
+### When is an ensemble search necessary?
 
 - New models have been added or older ones removed
 - Prediction characteristics drastically shift post-retraining

@@ -14,7 +14,7 @@ This document is a **complete, hands-on walkthrough** for the QuantPits system, 
 3. [Initialize a Workspace](#3-initialize-a-workspace)
 4. [Train Models](#4-train-models)
 5. [Predict Only (Without Retraining)](#5-predict-only-without-retraining)
-6. [Brute-Force Combination Search](#6-brute-force-combination-search)
+6. [Ensemble Search](#6-ensemble-search)
 7. [Ensemble Fusion](#7-ensemble-fusion)
 8. [Generate Signal Ranking (Optional)](#8-generate-signal-ranking-optional)
 9. [Process Live-Trade Data (Post-Trade)](#9-process-live-trade-data-post-trade)
@@ -55,9 +55,9 @@ pip install -e .
 ### 1.4 (Optional) Install CuPy for GPU Acceleration
 
 > [!NOTE]
-> CuPy is solely used to accelerate the **brute-force enumeration** during combination search, and is unrelated to Qlib model training. For GPU dependencies during model training itself (e.g., LightGBM, CatBoost), please refer to the official documentation of Qlib or the respective algorithms.
+> CuPy is solely used to accelerate the **ensemble search** during combination optimization, and is unrelated to Qlib model training. For GPU dependencies during model training itself (e.g., LightGBM, CatBoost), please refer to the official documentation of Qlib or the respective algorithms.
 
-If you want GPU-accelerated brute-force combination search (`brute_force_fast.py`), install CuPy for your CUDA version:
+If you want GPU-accelerated ensemble search (`brute_force_fast.py`), install CuPy for your CUDA version:
 
 ```bash
 # CUDA 12.x
@@ -271,9 +271,9 @@ Predictions are saved to `output/predictions/`, and `latest_train_records.json` 
 
 ---
 
-## 6. Brute-Force Combination Search
+## 6. Ensemble Search
 
-When you have ≥ 2 models, brute-force enumeration helps you find the optimal model combination.
+When you have ≥ 2 models, ensemble search helps you find the optimal model combination.
 
 > [!WARNING]
 > **Note**: Exhaustive search and fusion require at least **2** trained models. If you are using the default Demo Workspace (which has only 1 model enabled), please first enable and train other models in `model_registry.yaml` before executing this step.
@@ -292,12 +292,12 @@ groups:
     - catboost_Alpha158
 ```
 
-### 6.2 Run Brute-Force Search
+### 6.2 Run Ensemble Search
 
 #### Fast Mode (Vectorized, seconds-level, best for initial screening)
 
 ```bash
-# Fast search (up to 3-model combos)
+# Ensemble search (up to 3-model combos)
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # Full enumeration
@@ -332,7 +332,7 @@ python quantpits/scripts/brute_force_fast.py --use-gpu
 #### Accurate Mode (Full Qlib Backtest, minutes-level)
 
 ```bash
-# Accurately backtest top candidates (use after fast screening)
+# Accurately search Top candidates (use after fast screening)
 python quantpits/scripts/brute_force_ensemble.py --max-combo-size 3
 
 # Resume from interruption
@@ -556,7 +556,7 @@ source workspaces/Demo_Workspace/run_env.sh
 # ① Full training
 python quantpits/scripts/static_train.py --full
 
-# ② Quick brute-force search
+# ② Quick ensemble search
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # ③ Ensemble fusion
@@ -596,7 +596,7 @@ python quantpits/scripts/order_gen.py
 # ① Predict with existing models
 python quantpits/scripts/static_train.py --predict-only --all-enabled
 
-# ② Fast brute-force search (with OOS validation)
+# ② Fast ensemble search (with OOS validation)
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 # ③ Evaluate and validate top candidates via the decoupled analyzer (script prints metadata path on exit)

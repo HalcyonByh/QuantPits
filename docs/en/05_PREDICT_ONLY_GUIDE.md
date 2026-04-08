@@ -6,7 +6,7 @@
 
 **Usage Context**: Employed after dataset appending sequences to rapidly spin fresh predictive targets without model retraining, seamlessly linking onto the Exhaustive Combo/Fusion streams.
 
-**Pipeline Placement**: ~~Training Array~~ → **Prediction Output (This Step)** → Exhaustive Combo Mapping → Fusion Engine → Orders Gen
+**Pipeline Placement**: ~~Training Array~~ → **Prediction Output (This Step)** → Ensemble Search → Ensemble Fusion → Order Gen
 
 ---
 
@@ -126,7 +126,7 @@ cd QuantPits
 # Step 1: Predict via extant unretrained logic nodes
 python quantpits/scripts/static_train.py --predict-only --all-enabled
 
-# Step 2: Validate Exhaustive Compositions
+# Step 2: Validate Ensemble Search candidates
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # Step 3: Instantiate Fused Orders Set

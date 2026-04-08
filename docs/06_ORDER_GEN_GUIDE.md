@@ -6,7 +6,7 @@
 
 **本脚本是工作流的最后一步**，需要在有预测数据且处理完交易实际情况后运行。
 
-**工作流位置**: 训练 → 穷举 → 融合回测 → Post-Trade → **订单生成（本步）**
+**工作流位置**: 训练 → 组合搜索 → 融合回测 → Post-Trade → **订单生成（本步）**
 
 | 脚本 | 用途 |
 |------|------|
@@ -193,7 +193,7 @@ python quantpits/scripts/order_gen.py --help
 # Step 1: 训练 / 预测
 python quantpits/scripts/static_train.py --full
 
-# Step 2: 穷举组合
+# Step 2: 组合搜索组合
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # Step 3: 融合回测（所有 combo）
@@ -248,7 +248,7 @@ python quantpits/scripts/order_gen.py
 | 脚本 | 用途 | 输入 | 输出 |
 |------|------|------|------|
 | `static_train.py --full` | 训练模型 | configs | `latest_train_records.json` |
-| `brute_force_fast.py` | 穷举组合 | train records | leaderboard |
+| `brute_force_fast.py` | 组合搜索 | train records | leaderboard |
 | `ensemble_fusion.py` | 融合回测 | 选定模型 | 融合预测 + 绩效 |
 | `prod_post_trade.py` | 处理交易 | 交易文件 | 更新持仓/现金 |
 | `signal_ranking.py` | 信号排名 | 融合预测 | Top N 排名 CSV |

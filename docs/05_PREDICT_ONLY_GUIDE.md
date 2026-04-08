@@ -4,9 +4,9 @@
 
 `scripts/static_train.py --predict-only` 用于**不重新训练**的情况下，使用已有模型对最新数据进行预测和回测。
 
-**使用场景**：数据更新后无需重训，直接用现有模型生成新预测，然后接入穷举/融合流程。
+**使用场景**：数据更新后无需重训，直接用现有模型生成新预测，然后接入组合搜索/融合流程。
 
-**工作流位置**：~~训练~~ → **仅预测（本步）** → 暴力穷举 → 融合回测 → 订单生成
+**工作流位置**：~~训练~~ → **仅预测（本步）** → 组合搜索 → 融合回测 → 订单生成
 
 ---
 
@@ -123,10 +123,7 @@ latest_train_records.json               # 更新后的训练记录（含新 reco
 ```bash
 cd QuantPits
 
-# Step 1: 用现有模型预测新数据
-python quantpits/scripts/static_train.py --predict-only --all-enabled
-
-# Step 2: 穷举组合（快速版）
+# Step 2: 组合搜索组合（快速版）
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # Step 3: 融合回测
@@ -167,7 +164,7 @@ python quantpits/scripts/static_train.py --list
 | `static_train.py --full` | 全量训练 | ✅ | configs | `latest_train_records.json` |
 | `static_train.py` | 增量训练 | ✅ | configs | `latest_train_records.json` |
 | `static_train.py --predict-only` | 仅预测 | ❌ | 已有模型 | `latest_train_records.json` |
-| `brute_force_ensemble.py` | 穷举组合 | - | train records | leaderboard |
+| `brute_force_ensemble.py` | 组合搜索 | - | train records | leaderboard |
 | `ensemble_fusion.py` | 融合回测 | - | 选定模型 | 融合预测 + 绩效 |
 
 > 三个输出 `latest_train_records.json` 的脚本使用**相同格式**，下游脚本可以透明切换。

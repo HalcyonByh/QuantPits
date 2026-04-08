@@ -30,14 +30,14 @@
 |------|:---:|------|
 | ① 训练 | ⚠️ 至少一次 | 首次必须训练；后续仅在需要刷新模型时重训 |
 | ② 预测 | ✅ 每次 | 可随训练一起产出，也可用已有模型单独预测 |
-| ③ 暴力穷举 | ❌ 偶尔 | 非常耗时，选好的组合可持续使用一段时间 |
+| ③ 组合搜索 | ❌ 偶尔 | 穷举+多维分析，选好的组合可持续使用一段时间 |
 | ④ 融合预测 | ✅ 每次 | 支持多组合融合和对比，用选定组合生成最终融合信号 |
 | ⑤ Post-Trade | ✅ 每次 | 处理上周期实盘数据,更新持仓和资金 |
 | ⑥ 订单生成 | ✅ 每次 | 基于融合预测和当前持仓,输出买卖建议 + 多模型判断 |
 | ⑦ 信号排名 | 可选 | 归一化分数生成 Top N 排名，适合分享 |
 
 > [!IMPORTANT]
-> 训练不必每周都做，但预测每次必须。穷举组合是"重资产"操作，选定的模型组合可以用很久。日常操作的最小闭环是：**预测 → 融合 → Post-Trade → 订单生成**。
+> 训练不必每周都做，但预测每次必须。组合搜索是"重资产"操作，选定的模型组合可以用很久。日常操作的最小闭环是：**预测 → 融合 → Post-Trade → 订单生成**。
 
 ---
 
@@ -58,10 +58,13 @@ flowchart TB
         PO["static_train.py --predict-only<br/>仅预测"]
     end
 
-    subgraph BRUTEFORCE["③ 暴力穷举（偶尔）"]
+    subgraph SEARCH["③ 组合搜索（偶尔）"]
         BF["brute_force_ensemble.py<br/>精确回测"]
         BFF["brute_force_fast.py<br/>快速筛选"]
+        AE["analyze_ensembles.py<br/>多维分析+OOS验证"]
     end
+
+    EC["ensemble_config.json<br/>组合配置（手动编辑）"]
 
     subgraph FUSION["④ 融合预测（每次·多组合）"]
         EF["ensemble_fusion.py<br/>--from-config-all / --combo"]
@@ -87,6 +90,7 @@ flowchart TB
     LTR["latest_train_records.json<br/>训练记录"]
     LRR["latest_train_records.json<br/>统一训练记录<br/>(含 @rolling)"]
     PRED_REC["output/predictions/<br/>预测 Recorders"]
+    ER["ensemble_records.json<br/>融合记录指针"]
     WC["prod_config.json<br/>持仓/现金"]
 
     REG --> TRAIN
@@ -95,20 +99,23 @@ flowchart TB
     TRAIN --> LTR
     PREDICT --> LTR
     ROLLING --> LRR
-    LTR --> BRUTEFORCE
+    LTR --> SEARCH
     LTR --> FUSION
-    LRR -.->|--training-mode rolling| BRUTEFORCE
+    LRR -.->|--training-mode rolling| SEARCH
     LRR -.->|--training-mode rolling| FUSION
-    FUSION --> PRED_REC
+    BFF --> AE
+    BF --> AE
+    AE -.->|推荐组合 → 手动编辑| EC
+    EC --> EF
     PREDICT --> PRED_REC
-    PRED_REC --> ORDERGEN
-    PRED_REC --> SR
+    PRED_REC -.->|--model 单模型| ORDERGEN
     PRED_REC --> AN
+    EF --> ER
+    ER --> ORDERGEN
+    ER --> SR
     PT --> WC
     WC --> ORDERGEN
     WC -.->|daily_amount| AN
-    BFF -.->|选定组合| EF
-    BF -.->|选定组合| EF
 ```
 
 ---
@@ -129,7 +136,7 @@ source workspaces/Demo_Workspace/run_env.sh
 # ① 全量训练（产出预测 + 训练记录）
 python quantpits/scripts/static_train.py --full
 
-# ③ 暴力穷举找组合（可选，非常耗时）
+# ③ 组合搜索找组合（可选，非常耗时）
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # ④ 融合预测（用选定组合）
@@ -271,7 +278,7 @@ python quantpits/scripts/ensemble_fusion.py \
 - 支持与训练脚本相同的模型选择方式（按名称/算法/标签等）
 - **增量合并**更新 `latest_train_records.json`，下游脚本无感知切换
 
-### ③ 暴力穷举模块
+### ③ 组合搜索模块
 
 > 详见 [02_BRUTE_FORCE_GUIDE.md](02_BRUTE_FORCE_GUIDE.md)
 
@@ -279,10 +286,11 @@ python quantpits/scripts/ensemble_fusion.py \
 |------|------|------|
 | `brute_force_fast.py` | 向量化快速筛选 | ~0.001s/组合 |
 | `brute_force_ensemble.py` | Qlib 完整回测 | ~5s/组合 |
+| `analyze_ensembles.py` | IS 多维分析 + OOS 盲测验证 | 按需 |
 
-- **推荐工作流**：先用快速版粗筛所有组合，再用原版精确验证 Top 候选
+- **推荐工作流**：先用快速版粗筛 → `analyze_ensembles.py` 多维分析并 OOS 验证 → 选定组合写入 `ensemble_config.json`
 - 输出模型归因分析、风险收益散点图、层次聚类图等
-- 整理后的产出物存储在每次运行独立子目录 `output/ensemble_runs/{script}_{date}/` 中，IS 与 OOS 分层存放
+- 产出物存储在每次运行独立子目录 `output/ensemble_runs/{script}_{date}/` 中，IS 与 OOS 分层存放
 - 支持 `--resume` 断点续跑
 
 ### ④ 融合预测模块
@@ -360,21 +368,29 @@ python quantpits/scripts/ensemble_fusion.py \
          │                             │
          ▼                             │
   ┌──────────────────┐                 │
-  │ 暴力穷举（可选）   │                 │
+  │ 组合搜索（可选）   │                 │
   │ brute_force_*.py │                 │
+  │ analyze_*.py     │                 │
   └────────┬─────────┘                 │
-           │ 选定组合                   │
+           │ 推荐组合 → 手动写入         │
+           ▼                           │
+  ensemble_config.json                 │
+           │                           │
            ▼                           │
   ┌──────────────────┐                 │
   │ 融合预测          │                 │
   │ ensemble_fusion  │                 │
   └────────┬─────────┘                 │
-           │ 融合 Recorder          │
+           │                           │
+           ▼                           │
+  ensemble_records.json                │
+  (combo → recorder_id)                │
+           │                           ▼
            ▼                           ▼
   ┌────────────────────────────────────────┐
   │ 订单生成                                │
   │ order_gen.py                           │
-  │ 输入: 预测Recorder + 持仓/现金               │
+  │ 输入: ensemble_records + 持仓/现金      │
   │ 输出: buy/sell_suggestion_*.csv        │
   └────────────────────────────────────────┘
 ```
@@ -393,6 +409,7 @@ python quantpits/scripts/ensemble_fusion.py \
 | `prod_config.json` | 实盘与状态层：持仓、现金、处理时间 | Post-Trade、订单生成 |
 | `cashflow.json` | 出入金记录：按日期的出入金 | Post-Trade |
 | `ensemble_config.json` | 多组合融合配置：combo 定义、权重、default | 融合预测、订单生成、信号排名 |
+| `ensemble_records.json` | 融合记录指针：combo→recorder_id 映射，default 标记 | 融合预测、订单生成、信号排名 |
 | `rolling_config.yaml` | 滚动训练参数：起点、训练/验证年数、步长 | 滚动训练 |
 | `workflow_config_*.yaml` | Qlib 工作流：各模型的训练配置 | 训练 |
 
@@ -437,7 +454,7 @@ python quantpits/scripts/ensemble_fusion.py \
 |:---:|------|------|
 | 00 | [本文档](00_SYSTEM_OVERVIEW.md) | 系统总览、架构、典型场景、模块速查 |
 | 01 | [TRAINING_GUIDE](01_TRAINING_GUIDE.md) | 全量训练、增量训练、模型注册表管理 |
-| 02 | [BRUTE_FORCE_GUIDE](02_BRUTE_FORCE_GUIDE.md) | 暴力穷举组合回测（原版 + 快速版） |
+| 02 | [BRUTE_FORCE_GUIDE](02_BRUTE_FORCE_GUIDE.md) | 组合搜索组合回测（原版 + 快速版） |
 | 03 | [ENSEMBLE_FUSION_GUIDE](03_ENSEMBLE_FUSION_GUIDE.md) | 模型融合预测、权重模式、回测 |
 | 04 | [POST_TRADE_GUIDE](04_POST_TRADE_GUIDE.md) | 实盘交易数据处理、持仓/资金更新 |
 | 05 | [PREDICT_ONLY_GUIDE](05_PREDICT_ONLY_GUIDE.md) | 仅预测（不重训）、更新训练记录 |
@@ -462,8 +479,8 @@ python quantpits/scripts/ensemble_fusion.py \
 | `backtest_utils.py` | Qlib 回测执行与评估 | 穷举、融合、分析 |
 | `env.py` | Qlib 初始化、工作目录管理 | 全局 |
 | `ensemble_utils.py` | Ensemble 配置解析、combo 管理、记录加载 | 融合、信号排名、订单生成 |
-| `search_utils.py` | 组合搜索共享逻辑：信号处理、回测核心、IS/OOS 切分、分组穷举 | 暴力穷举(标准/快速)、最小熵搜索、组合分析 |
-| `run_context.py` | 每次运行的输出路径管理，封装 IS/OOS 子目录结构 | 暴力穷举、组合分析 |
+| `search_utils.py` | 组合搜索共享逻辑：信号处理、回测核心、IS/OOS 切分、分组穷举 | 组合搜索(标准/快速)、最小熵搜索、组合分析 |
+| `run_context.py` | 每次运行的输出路径管理，封装 IS/OOS 子目录结构 | 组合搜索、组合分析 |
 | `fusion_engine.py` | 权重计算 (equal/icir/manual/dynamic)、信号融合 | 融合 |
 | `backtest_report.py` | 详尽回测分析报告生成 (复用 PortfolioAnalyzer) | 融合 |
 

@@ -14,7 +14,7 @@
 3. [初始化工作区](#3-初始化工作区)
 4. [训练模型](#4-训练模型)
 5. [仅预测（不重训）](#5-仅预测不重训)
-6. [组合穷举优选](#6-组合穷举优选)
+6. [组合搜索](#6-ensemble-search)
 7. [融合预测](#7-融合预测)
 8. [生成信号排名（可选）](#8-生成信号排名可选)
 9. [处理实盘数据（Post-Trade）](#9-处理实盘数据post-trade)
@@ -55,9 +55,9 @@ pip install -e .
 ### 1.4（可选）安装 CuPy GPU 加速
 
 > [!NOTE]
-> CuPy 仅用于加速组合优选时的**暴力穷举**过程，与 Qlib 模型训练无关。模型训练本身的 GPU 依赖（如 LightGBM、CatBoost 等）需参考 Qlib 或对应算法的官方文档配置。
+> CuPy 仅用于加速组合优选时的**组合搜索**过程，与 Qlib 模型训练无关。模型训练本身的 GPU 依赖（如 LightGBM、CatBoost 等）需参考 Qlib 或对应算法的官方文档配置。
 
-如果需要使用 GPU 加速暴力穷举组合（`brute_force_fast.py`），按 CUDA 版本安装 CuPy：
+如果需要使用 GPU 加速组合搜索组合（`brute_force_fast.py`），按 CUDA 版本安装 CuPy：
 
 ```bash
 # CUDA 12.x
@@ -270,12 +270,12 @@ python quantpits/scripts/static_train.py --predict-only --all-enabled --dry-run
 
 ---
 
-## 6. 组合穷举优选
+## 6. 组合搜索
 
-当模型数量 ≥ 2 时，可通过暴力穷举找到最优模型组合。
+当模型数量 ≥ 2 时，可通过组合搜索找到最优模型组合。
 
 > [!WARNING]
-> **注意**：穷举和融合需要至少 **2 个**已训练的模型。如果使用默认的 Demo 工作区（仅有 1 个模型），请先在 `model_registry.yaml` 中启用并训练其他模型再执行此步骤。
+> **注意**：组合搜索和融合需要至少 **2 个**已训练的模型。如果使用默认的 Demo 工作区（仅有 1 个模型），请先在 `model_registry.yaml` 中启用并训练其他模型再执行此步骤。
 
 ### 6.1 准备组合分组文件（可选）
 
@@ -291,15 +291,15 @@ groups:
     - catboost_Alpha158
 ```
 
-### 6.2 运行穷举
+### 6.2 运行组合搜索
 
-#### 快速穷举（向量化，秒级，适合粗筛）
+#### 快速组合搜索（向量化，秒级，适合粗筛）
 
 ```bash
-# 快速穷举（最多 3 个模型组合）
+# 快速搜索（最多 3 个模型组合）
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
-# 完整穷举
+# 全量搜索
 python quantpits/scripts/brute_force_fast.py
 
 # 带防过拟合的 OOS 验证（推荐！）
@@ -319,7 +319,7 @@ python quantpits/scripts/analyze_ensembles.py --metadata output/ensemble_runs/br
 # oos/oos_risk_return.png / oos/oos_report.txt (OOS 样本外独立测试成绩)
 # summary.md               (一页纸汇总，VS Code 可预览)
 
-# 使用分组穷举
+# 使用分组搜索
 python quantpits/scripts/brute_force_fast.py --use-groups
 
 # GPU 加速
@@ -328,10 +328,11 @@ python quantpits/scripts/brute_force_fast.py --use-gpu
 
 > ⚠️ **快速版精度有限**（不含涨跌停过滤、精确持仓管理），适合初筛使用。
 
-#### 精确穷举（Qlib 完整回测，分钟级）
+#### 精确搜索（Qlib 完整回测，分钟级）
 
 ```bash
-# 精确穷举 Top 候选（建议先用快速版筛选后再精确验证）
+# 精确搜索 Top 候选
+（建议先用快速版筛选后再精确验证）
 python quantpits/scripts/brute_force_ensemble.py --max-combo-size 3
 
 # 从中断处继续
@@ -541,7 +542,8 @@ python quantpits/scripts/run_rolling_health_report.py
 ### 场景 A：首次完整运行
 
 > [!WARNING]
-> 步骤 ② 和 ③ 的穷举融合需要至少训练 2 个以上的模型。如果在 Demo 工作区下测试，请先修改 `model_registry.yaml` 开启额外模型。
+> 步骤 ② 和 ③ 的组合搜索与融合需要至少训练 2 个以上的模型。
+如果在 Demo 工作区下测试，请先修改 `model_registry.yaml` 开启额外模型。
 
 ```bash
 # 确保当前位于项目根目录：
@@ -551,7 +553,7 @@ source workspaces/Demo_Workspace/run_env.sh
 # ① 全量训练
 python quantpits/scripts/static_train.py --full
 
-# ② 快速穷举找组合
+# ② 快速组合搜索找组合
 python quantpits/scripts/brute_force_fast.py --max-combo-size 3
 
 # ③ 融合预测
@@ -588,7 +590,7 @@ python quantpits/scripts/order_gen.py
 # ① 用已有模型预测
 python quantpits/scripts/static_train.py --predict-only --all-enabled
 
-# ② 快速穷举（带 OOS 验证）
+# ② 快速组合搜索（带 OOS 验证）
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 # ③ 评估并验证 Top 候选（脚本结束会打印 metadata 路径）

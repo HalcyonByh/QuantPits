@@ -6,7 +6,7 @@
 
 **This script is the final step of the operational workflow.** It must be run after predictive data is available and actual post-trade conditions have been reconciled.
 
-**Workflow Pipeline Placement**: Training → Brute Force → Fusion Backtest → Post-Trade → **Order Generation (This Step)**
+**Workflow Pipeline Placement**: Training → Ensemble Search → Fusion Backtest → Post-Trade → **Order Generation (This Step)**
 
 | Script | Purpose |
 |------|------|

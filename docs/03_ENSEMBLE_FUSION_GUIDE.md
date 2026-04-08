@@ -6,7 +6,7 @@
 
 **支持多组合模式**：在 `config/ensemble_config.json` 中定义多个 combo，标记一个 `default`，一次运行所有组合并对比绩效。
 
-**工作流位置**: 训练 → 暴力穷举 → 选组合 → **融合回测（本步）** → 订单生成
+**工作流位置**: 训练 → 组合搜索 → 选组合 → **融合回测（本步）** → 订单生成
 
 ## 快速开始
 
@@ -80,6 +80,70 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 - 恰好一个 combo 标记 `"default": true`
 - 脚本兼容旧格式（单 `models` + `ensemble_method`）
 
+## 从搜索结果配置组合
+
+当你通过组合搜索（详见 [02_BRUTE_FORCE_GUIDE](02_BRUTE_FORCE_GUIDE.md)）找到候选组合后，按以下步骤将它们转化为融合配置。
+
+> [!NOTE]
+> 这一步是**手动决策步骤**。搜索脚本只负责推荐，最终选哪些组合由你决定。选好后，本文档的融合脚本接管后续所有自动化工作。
+
+### 步骤 1：查看搜索报告确认候选组合
+
+```bash
+# 查看一页纸摘要（IS 排名 + OOS 验证结果）
+cat output/ensemble_runs/<run_dir>/summary.md
+
+# 或在浏览器打开交互式 HTML 报告（内容更完整）
+# output/ensemble_runs/<run_dir>/oos/oos_multi_analysis.html
+```
+
+建议从报告中选取 **2-3 个候选组合**，涵盖不同维度：
+- 一个 IS Calmar 最高的组合（高收益）
+- 一个 OOS 表现稳定的组合（高稳健）
+- 一个模型间相关性低的组合（高多样性）
+
+### 步骤 2：编辑 ensemble_config.json
+
+将选定组合的 `models` 列表复制到 `config/ensemble_config.json`，**必须标记一个 `default`**：
+
+```json
+{
+  "combos": {
+    "combo_A": {
+      "models": ["gru", "linear_Alpha158", "TabNet_Alpha158"],
+      "method": "equal",
+      "default": true,
+      "description": "高 Calmar 组合（OOS 验证通过）"
+    },
+    "combo_B": {
+      "models": ["alstm_Alpha158", "linear_Alpha158", "sfm_Alpha360"],
+      "method": "icir_weighted",
+      "default": false,
+      "description": "低相关性多样化组合"
+    }
+  },
+  "min_model_ic": 0.00
+}
+```
+
+配置格式说明详见下方 [多组合配置](#多组合配置) 章节。
+
+### 步骤 3：运行融合回测验证
+
+```bash
+# 运行所有 combo 并生成跨组合对比，确认 default 选择是否合理
+python quantpits/scripts/ensemble_fusion.py --from-config-all
+
+# 查看对比结果
+cat output/ensemble/combo_comparison_*.csv
+```
+
+配置完成后，后续每次生产例行只需 `--from-config-all` 即可，无需重新搜索。
+
+### 什么时候需要重新进行组合搜索？
+
+---
+
 ## 运行模式
 
 ### 单组合模式
@@ -104,7 +168,15 @@ python quantpits/scripts/ensemble_fusion.py --from-config-all
 
 ### OOS 验证测试模式 (Out-Of-Sample)
 
-如果你在寻找最佳组合时（使用 `brute_force_fast.py`）使用了 `--exclude-last-years 1` 等参数排除了今年的数据作为 OOS。在最终选定组合准备发车前，你可以使用以下命令单独测试组合在这最后 1 年的 OOS 纯外推表现：
+> [!NOTE]
+> **系统中存在两种 OOS 验证，用途不同：**
+>
+> | 阶段 | 工具 | 用途 |
+> |------|------|------|
+> | **搜索阶段** | `brute_force_fast --exclude-last-years` + `analyze_ensembles.py` | 在**海量候选**中防止 IS 过拟合，筛选出真正有泛化能力的组合 |
+> | **发车前验证** | `ensemble_fusion.py --only-last-years`（本节） | 对**已选定的组合**在 OOS 数据上做最终确认，确保发车前心里有底 |
+
+如果你在搜索时（使用 `brute_force_fast.py`）使用了 `--exclude-last-years 1` 等参数排除了今年的数据作为 OOS，在最终选定组合准备发车前，可以使用以下命令单独测试组合在这最后 1 年的 OOS 纯外推表现：
 
 ```bash
 # ========================================
@@ -200,7 +272,7 @@ output/
 # Step 1: 训练所有模型
 python quantpits/scripts/static_train.py --full
 
-# Step 2: 暴力穷举找最优组合
+# Step 2: 组合搜索找最优组合
 python quantpits/scripts/brute_force_fast.py --exclude-last-years 1
 
 # Step 3: 查看结果，选择多个组合写入配置
@@ -222,7 +294,7 @@ python quantpits/scripts/order_gen.py
 | 脚本 | 用途 | 输入 | 输出 |
 |------|------|------|------|
 | `static_train.py --full` | 训练模型 | configs | `latest_train_records.json` |
-| `brute_force_ensemble.py` | 穷举组合 | train records | leaderboard |
+| `brute_force_ensemble.py` | 组合搜索 | train records | leaderboard |
 | **`ensemble_fusion.py`** | **融合回测** | **选定模型/多组合** | **融合预测 + 绩效 + 对比** |
 | `signal_ranking.py` | 信号排名 | 融合 Recorder | Top N 排名 CSV |
 | `order_gen.py` | 生成订单 | 融合 Recorder + 持仓 | 买卖建议 + 多模型判断 |
