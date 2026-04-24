@@ -206,8 +206,8 @@ class TradePatternAgent(BaseAgent):
             return top_n_val / total * 100
 
         daily_groups = df.groupby('成交日期')
-        top1_series = daily_groups.apply(lambda g: _top_n_pct(g, 1), include_groups=False)
-        top3_series = daily_groups.apply(lambda g: _top_n_pct(g, 3), include_groups=False)
+        top1_series = daily_groups.apply(lambda g: _top_n_pct(g, 1))
+        top3_series = daily_groups.apply(lambda g: _top_n_pct(g, 3))
 
         return {
             'avg_top1_pct': float(top1_series.mean()),

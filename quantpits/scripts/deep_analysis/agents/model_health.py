@@ -209,18 +209,47 @@ class ModelHealthAgent(BaseAgent):
         events = []
         perf_series = self._load_performance_series(ctx)
 
+        record_mode_cache = {}
+
+        def is_predict_only(record_id: str) -> bool:
+            if record_id in record_mode_cache:
+                return record_mode_cache[record_id]
+
+            mlruns_dir = os.path.join(ctx.workspace_root, 'mlruns')
+            if not os.path.exists(mlruns_dir):
+                record_mode_cache[record_id] = False
+                return False
+
+            mode_files = glob.glob(os.path.join(mlruns_dir, '*', record_id, 'tags', 'mode'))
+            if mode_files:
+                try:
+                    with open(mode_files[0], 'r') as f:
+                        mode = f.read().strip()
+                        is_predict = (mode == 'predict_only')
+                        record_mode_cache[record_id] = is_predict
+                        return is_predict
+                except Exception:
+                    pass
+
+            record_mode_cache[record_id] = False
+            return False
+
         for model_name, series in perf_series.items():
             prev_record = None
             for entry in series:
                 curr_record = entry.get('record_id')
-                if curr_record and prev_record and curr_record != prev_record:
-                    events.append({
-                        'model': model_name,
-                        'date': entry['_date'],
-                        'old_record': prev_record,
-                        'new_record': curr_record,
-                    })
+                
                 if curr_record:
+                    if is_predict_only(curr_record):
+                        continue
+                        
+                    if prev_record and curr_record != prev_record:
+                        events.append({
+                            'model': model_name,
+                            'date': entry['_date'],
+                            'old_record': prev_record,
+                            'new_record': curr_record,
+                        })
                     prev_record = curr_record
 
         return sorted(events, key=lambda x: x['date'])
