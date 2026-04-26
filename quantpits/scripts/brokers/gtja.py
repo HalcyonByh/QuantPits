@@ -54,8 +54,14 @@ class GtjaAdapter(BaseBrokerAdapter):
                     df[col] = df[col].astype(str).str.lstrip("\t").str.strip()
             
             if "证券代码" in df.columns:
-                df = df[df["证券代码"].notna() & (df["证券代码"] != "nan")].copy()
-                df["证券代码"] = df["证券代码"].apply(lambda x: str(x).split(".")[0].zfill(6))
+                # 1. 除去真正的 NaN/None
+                df = df[df["证券代码"].notna()].copy()
+                # 2. 转换为字符串并清洗
+                df["证券代码"] = df["证券代码"].astype(str).str.lstrip("\t").str.strip()
+                # 3. 除去字符串形式的 "nan" 或 "None"
+                df = df[~df["证券代码"].isin(["nan", "None", ""])].copy()
+                # 4. 格式化并过滤
+                df["证券代码"] = df["证券代码"].apply(lambda x: x.split(".")[0].zfill(6))
                 df = df[df["证券代码"].str.startswith(("6", "0"))].copy()
             
             return df
