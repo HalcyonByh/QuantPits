@@ -17,6 +17,7 @@ import os
 import json
 import yaml
 import shutil
+import time
 from datetime import datetime, timedelta
 from quantpits.utils.constants import TRADING_DAYS_PER_YEAR, TRADING_WEEKS_PER_YEAR, AVERAGE_CALENDAR_DAYS_PER_YEAR
 
@@ -697,7 +698,44 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
             
             # 训练
             print(f"[{model_name}] Training...")
+            t0 = time.time()
             model.fit(dataset=dataset)
+            duration = time.time() - t0
+
+            # 捕获收敛信息
+            actual_epochs = None
+            configured_epochs = None
+            try:
+                # 尝试获取实际运行的 epoch 数
+                if hasattr(model, 'fitted_model_') and hasattr(model.fitted_model_, 'best_iteration'):
+                    # LightGBM / CatBoost
+                    actual_epochs = model.fitted_model_.best_iteration
+                elif hasattr(model, 'model') and hasattr(model.model, 'n_epochs_fitted_'):
+                    # Qlib NN models
+                    actual_epochs = model.model.n_epochs_fitted_
+                
+                # 从配置中获取设定的 epoch 数
+                if 'model' in task_config['task'] and 'kwargs' in task_config['task']['model']:
+                    configured_epochs = task_config['task']['model']['kwargs'].get('n_epochs')
+            except Exception as e:
+                print(f"[{model_name}] Warning: Could not capture epoch info: {e}")
+
+            early_stopped = False
+            if actual_epochs is not None and configured_epochs is not None:
+                early_stopped = actual_epochs < configured_epochs
+
+            convergence_log = {
+                "experiment_name": experiment_name,
+                "record_id": R.get_recorder().info['id'],
+                "anchor_date": params['anchor_date'],
+                "trained_at": datetime.now().isoformat(),
+                "duration_seconds": float(duration),
+                "early_stopped": early_stopped,
+                "actual_epochs": actual_epochs,
+                "configured_epochs": configured_epochs,
+                "converged": (actual_epochs == configured_epochs) if (actual_epochs is not None and configured_epochs is not None) else None,
+                "final_train_loss": None,
+            }
             
             # 预测
             print(f"[{model_name}] Predicting...")
@@ -738,6 +776,22 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
             except Exception as e:
                 print(f"[{model_name}] Could not get IC metrics: {e}")
                 performance = {"record_id": recorder.info['id']}
+            
+            # 注入收敛日志到 performance
+            convergence_log["IC_Mean"] = performance.get("IC_Mean")
+            convergence_log["ICIR"] = performance.get("ICIR")
+            performance["convergence"] = convergence_log
+
+            # 追加到 training_history.jsonl
+            try:
+                history_file = os.path.join(ROOT_DIR, 'data', 'training_history.jsonl')
+                os.makedirs(os.path.dirname(history_file), exist_ok=True)
+                history_entry = {"model_name": model_name}
+                history_entry.update(convergence_log)
+                with open(history_file, 'a') as f:
+                    f.write(json.dumps(history_entry) + "\n")
+            except Exception as e:
+                print(f"[{model_name}] Warning: Could not write to training_history.jsonl: {e}")
             
             rid = recorder.info['id']
             print(f"[{model_name}] Finished! Recorder ID: {rid}")
