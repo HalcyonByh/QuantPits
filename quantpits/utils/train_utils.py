@@ -647,20 +647,23 @@ def get_models_by_names(model_names, registry=None):
 import logging
 import re
 
-class BestScoreFilter(logging.Filter):
+class BestScoreCaptureHandler(logging.Handler):
     def __init__(self):
         super().__init__()
         self.best_score = None
         self.best_epoch = None
     
-    def filter(self, record):
-        msg = record.getMessage()
-        if "best score" in msg or "best_score" in msg:
-            m = re.search(r"best score.*?\s([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+@\s+(\d+)", msg)
-            if m:
-                self.best_score = float(m.group(1))
-                self.best_epoch = int(m.group(2))
-        return True
+    def emit(self, record):
+        try:
+            msg = record.getMessage()
+            if "best score" in msg or "best_score" in msg:
+                # 兼容 "best score: 0.063768 @ 7" 或 "best score: -0.994350 @ 8"
+                m = re.search(r"best score[:\s]+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+@\s+(\d+)", msg)
+                if m:
+                    self.best_score = float(m.group(1))
+                    self.best_epoch = int(m.group(2))
+        except Exception:
+            pass
 
 
 # ================= 单模型训练 =================
@@ -719,9 +722,11 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
             # 训练
             # 捕获收敛信息
             evals_result = {}
-            score_filter = BestScoreFilter()
+            score_handler = BestScoreCaptureHandler()
             qlib_logger = logging.getLogger("qlib")
-            qlib_logger.addFilter(score_filter)
+            orig_level = qlib_logger.level
+            qlib_logger.setLevel(logging.INFO) # 确保能捕获 INFO 级别日志
+            qlib_logger.addHandler(score_handler)
             
             print(f"[{model_name}] Training...")
             t0 = time.time()
@@ -732,7 +737,8 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
                 # 兼容不支持 evals_result 的旧版或特殊模型
                 model.fit(dataset=dataset)
             finally:
-                qlib_logger.removeFilter(score_filter)
+                qlib_logger.removeHandler(score_handler)
+                qlib_logger.setLevel(orig_level)
             
             duration = time.time() - t0
 
@@ -845,9 +851,9 @@ def train_single_model(model_name, yaml_file, params, experiment_name, no_pretra
                         configured_epochs = None
                     
                 # 3. 使用 Qlib Logger 截获的 best_score 作为最终补充
-                if best_score is None and score_filter.best_score is not None:
-                    best_score = score_filter.best_score
-                    best_epoch = score_filter.best_epoch
+                if best_score is None and score_handler.best_score is not None:
+                    best_score = score_handler.best_score
+                    best_epoch = score_handler.best_epoch
                     
             except Exception as e:
                 print(f"[{model_name}] Warning: Could not capture detailed epoch info: {e}")
