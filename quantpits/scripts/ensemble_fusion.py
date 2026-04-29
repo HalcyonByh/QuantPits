@@ -260,6 +260,79 @@ def calculate_loo_contribution(norm_df, final_score):
 
 
 # ============================================================================
+# Fusion Run Ledger
+# ============================================================================
+def append_to_fusion_ledger(
+    workspace_root: str,
+    run_date: str,
+    combo_name: str,
+    models: list,
+    method: str,
+    is_default: bool,
+    eval_window: dict,
+    metrics: dict,
+    sub_model_metrics: dict = None,
+    loo_contributions: dict = None,
+    cli_args: list = None,
+):
+    """
+    将本次 ensemble_fusion.py 的回测结果追加写入 data/fusion_run_ledger.jsonl。
+
+    每条记录代表一次手动/配置驱动的融合回测快照，供 RLFF EnsembleEvolutionAgent
+    追踪组合性能趋势和 IS/OOS 衰减，无需依赖 brute_force 搜索的 run_metadata.json。
+
+    Args:
+        workspace_root: 工作区根目录
+        run_date:       执行日期 (YYYY-MM-DD)
+        combo_name:     组合名称（None 时记为 'default'）
+        models:         模型名称列表
+        method:         权重模式 ('equal'/'icir_weighted'/...)
+        is_default:     是否为 default combo
+        eval_window:    评估窗口配置 {
+                            'start': str, 'end': str,
+                            'only_last_years': int, 'only_last_months': int
+                        }
+        metrics:        Ensemble 绩效指标字典（annualized_return/excess/max_drawdown/calmar/...）
+        sub_model_metrics: 子模型绩效 {model_name: {annualized_return, annualized_excess, ...}}
+        loo_contributions: LOO 贡献度 {model_name: {delta, loo_ic, full_ic}}
+        cli_args:       sys.argv[1:]
+    """
+    ledger_path = os.path.join(workspace_root, 'data', 'fusion_run_ledger.jsonl')
+    os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
+
+    # 判断是否为 OOS 模式
+    oos_last_years = eval_window.get('only_last_years', 0)
+    oos_last_months = eval_window.get('only_last_months', 0)
+    is_oos = (oos_last_years > 0 or oos_last_months > 0)
+
+    record = {
+        'run_date': run_date,
+        'combo_name': combo_name or 'default',
+        'models': models,
+        'method': method,
+        'is_default': is_default,
+        'eval_window': {
+            'start': eval_window.get('start'),
+            'end': eval_window.get('end'),
+            'is_oos': is_oos,
+            'only_last_years': oos_last_years,
+            'only_last_months': oos_last_months,
+        },
+        'metrics': metrics,
+        'sub_model_metrics': sub_model_metrics or {},
+        'loo_contributions': loo_contributions or {},
+        'source': 'ensemble_fusion',
+        'cli_args': ' '.join(cli_args) if cli_args else None,
+    }
+
+    with open(ledger_path, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False, default=str) + '\n')
+
+    print(f"\n[Ledger] 已追加本次融合结果 (combo={combo_name or 'default'}, "
+          f"oos={is_oos}) → {ledger_path}")
+
+
+# ============================================================================
 # Stage 5: 保存预测结果
 # ============================================================================
 def save_predictions(final_score, anchor_date, experiment_name, method,
@@ -927,6 +1000,71 @@ def run_single_combo(combo_name, selected_models, method, manual_weights_str,
         with open(contrib_file, 'w') as f:
             json.dump(contrib_out, f, indent=4, ensure_ascii=False)
         print(f"模型贡献度已保存: {contrib_file}")
+
+    # ---- Stage 10: Fusion Run Ledger 追加 ----
+    # 只有实际完成了回测才写入，跳过回测无意义
+    if report_df is not None and leaderboard_df is not None:
+        try:
+            import sys as _sys
+
+            # 构造 Ensemble 行指标
+            ledger_metrics = {}
+            if 'Ensemble' in leaderboard_df.index:
+                ens_row = leaderboard_df.loc['Ensemble']
+                ledger_metrics = {
+                    k: round(float(v), 6) if pd.notna(v) else None
+                    for k, v in ens_row.items()
+                }
+
+                # 计算 calmar_ratio
+                ann_ret = ledger_metrics.get('annualized_return')
+                mdd = ledger_metrics.get('max_drawdown')
+                if ann_ret is not None and mdd is not None and mdd < 0:
+                    ledger_metrics['calmar'] = round(ann_ret / abs(mdd), 4)
+                else:
+                    ledger_metrics['calmar'] = None
+
+            # 子模型指标
+            sub_metrics = {}
+            for m in combo_models:
+                if m in leaderboard_df.index:
+                    row = leaderboard_df.loc[m]
+                    sub_metrics[m] = {
+                        k: round(float(v), 6) if pd.notna(v) else None
+                        for k, v in row.items()
+                    }
+
+            # 评估窗口
+            window_start = str(combo_norm_df.index.get_level_values('datetime').min().date())
+            window_end = str(combo_norm_df.index.get_level_values('datetime').max().date())
+            eval_window = {
+                'start': window_start,
+                'end': window_end,
+                'only_last_years': getattr(args, 'only_last_years', 0),
+                'only_last_months': getattr(args, 'only_last_months', 0),
+            }
+
+            # LOO 贡献度（精简：只保留 delta）
+            loo_summary = {
+                m: {'delta': round(v.get('delta', 0), 6)}
+                for m, v in contributions.items()
+            } if contributions else {}
+
+            append_to_fusion_ledger(
+                workspace_root=ROOT_DIR,
+                run_date=anchor_date,
+                combo_name=combo_name,
+                models=combo_models,
+                method=method,
+                is_default=is_default,
+                eval_window=eval_window,
+                metrics=ledger_metrics,
+                sub_model_metrics=sub_metrics,
+                loo_contributions=loo_summary,
+                cli_args=_sys.argv[1:],
+            )
+        except Exception as _e:
+            print(f"[Ledger] 写入失败（非致命）: {_e}")
 
     return {
         'name': combo_name or 'default',

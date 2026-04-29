@@ -157,10 +157,16 @@ class ReportGenerator:
                 for combo, series in trends.items():
                     if series:
                         latest = series[-1]
+                        ret = latest.get('total_return')
+                        cal = latest.get('calmar_ratio')
+                        exc = latest.get('excess_return')
+                        ret = float(ret) if ret is not None else 0.0
+                        cal = float(cal) if cal is not None else 0.0
+                        exc = float(exc) if exc is not None else 0.0
                         lines.append(
-                            f"- **{combo}**: Return={latest.get('total_return', 0):.2f}%, "
-                            f"Calmar={latest.get('calmar_ratio', 0):.2f}, "
-                            f"Excess={latest.get('excess_return', 0):.2f}%"
+                            f"- **{combo}**: Return={ret:.2f}%, "
+                            f"Calmar={cal:.2f}, "
+                            f"Excess={exc:.2f}%"
                         )
 
             # 3.2 Change Events
