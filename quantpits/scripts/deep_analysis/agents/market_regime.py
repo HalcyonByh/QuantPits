@@ -169,7 +169,10 @@ class MarketRegimeAgent(BaseAgent):
         # Iterate with sliding window
         for i in range(0, len(bench) - window + 1, step):
             segment = bench.iloc[i : i + window]
-            seg_ret = segment.iloc[-1] / segment.iloc[0] - 1
+            start_val = segment.iloc[0]
+            if start_val == 0 or pd.isna(start_val):
+                continue
+            seg_ret = segment.iloc[-1] / start_val - 1
             
             # Simple regime labeling for the segment
             if seg_ret > 0.02:
@@ -180,10 +183,15 @@ class MarketRegimeAgent(BaseAgent):
                 reg = "Sideways"
             
             if last_regime and reg != last_regime:
+                last_idx = segment.index[-1]
+                if hasattr(last_idx, 'strftime'):
+                    approx_date = last_idx.strftime('%Y-%m-%d')
+                else:
+                    approx_date = str(last_idx)
                 switches.append({
                     "from": last_regime,
                     "to": reg,
-                    "approx_date": segment.index[-1].strftime('%Y-%m-%d')
+                    "approx_date": approx_date
                 })
             last_regime = reg
 
@@ -195,8 +203,7 @@ class MarketRegimeAgent(BaseAgent):
                 switch_date = pd.Timestamp(switches[-1]['approx_date'])
                 current_streak = (last_date - switch_date).days
             else:
-                # No switches — current regime covers the entire window
-                current_streak = len(bench)
+                current_streak = (bench.index[-1] - bench.index[0]).days
         
         return {
             "switch_count": len(switches),

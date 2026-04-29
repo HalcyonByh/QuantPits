@@ -444,7 +444,8 @@ class PredictionAuditAgent(BaseAgent):
         avg_ic = {m: np.mean(v) for m, v in per_model_stats.items()}
         overall_avg = np.mean(list(avg_ic.values()))
         
-        underperformers = [m for m, ic in avg_ic.items() if ic < overall_avg - 0.2]
+        underperformers = [m for m, ic in avg_ic.items()
+                          if ic < overall_avg * 0.5 and ic < overall_avg - 0.02]
 
         return {
             "ensemble_overall_proxy_ic": float(overall_avg),

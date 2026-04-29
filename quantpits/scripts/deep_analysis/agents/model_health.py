@@ -118,7 +118,7 @@ class ModelHealthAgent(BaseAgent):
             for model_name in convergence_summary.get('underfitting_candidates', []):
                 findings.append(self._make_finding(
                     'warning', f'{model_name}: Potential underfitting',
-                    f"Model early-stopped prematurely (epochs_done={convergence_summary['model_details'][model_name]['epochs_done']}). "
+                    f"Model early-stopped prematurely (actual_epochs={convergence_summary['model_details'][model_name]['actual_epochs']}). "
                     "Consider adjusting early stopping patience or learning rate.",
                     {'model': model_name, 'convergence': convergence_summary['model_details'][model_name]}
                 ))
@@ -314,18 +314,18 @@ class ModelHealthAgent(BaseAgent):
                 # Fallback if convergence is flat in the dictionary
                 conv = {
                     'early_stopped': latest.get('early_stopped'),
-                    'epochs_done': latest.get('epochs_done', latest.get('actual_epochs')),
+                    'actual_epochs': latest.get('actual_epochs', latest.get('epochs_done')),
                     'configured_epochs': latest.get('configured_epochs'),
-                    'duration_s': latest.get('duration_s', latest.get('duration_seconds'))
+                    'duration_seconds': latest.get('duration_seconds', latest.get('duration_s'))
                 }
             
             if not conv: continue
             
             total_models += 1
             es = conv.get('early_stopped')
-            epochs_done = conv.get('epochs_done')
+            epochs_done = conv.get('actual_epochs')
             configured = conv.get('configured_epochs')
-            duration = conv.get('duration_s')
+            duration = conv.get('duration_seconds')
             
             if es: early_stopped_count += 1
             if duration: durations.append(duration)
@@ -334,7 +334,7 @@ class ModelHealthAgent(BaseAgent):
             
             if es and epochs_done and configured and epochs_done < configured * 0.5:
                 underfitting.append(model_name)
-            elif es == False:
+            elif es == False and epochs_done is not None and configured is not None:
                 full_epoch.append(model_name)
 
         if total_models == 0: return {}

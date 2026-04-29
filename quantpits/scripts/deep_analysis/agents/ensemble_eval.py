@@ -9,6 +9,7 @@ post-change impact.
 import os
 import json
 import re
+import glob
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
@@ -228,7 +229,6 @@ class EnsembleEvolutionAgent(BaseAgent):
         # Layers 2 & 3 from config_history snapshots (if available)
         history_dir = os.path.join(ctx.workspace_root, 'data', 'config_history')
         if os.path.isdir(history_dir):
-            import glob
             snapshots = sorted(glob.glob(os.path.join(history_dir, 'config_snapshot_*.json')))
             for i in range(1, len(snapshots)):
                 try:
@@ -368,8 +368,6 @@ class EnsembleEvolutionAgent(BaseAgent):
             return {}
 
         runs = []
-        # Search for run_metadata.json in all subdirectories of output/ensemble/
-        import glob
         metadata_paths = glob.glob(os.path.join(ensemble_dir, '**', 'run_metadata.json'), recursive=True)
         
         for path in metadata_paths:
@@ -379,8 +377,8 @@ class EnsembleEvolutionAgent(BaseAgent):
                 oos = data.get('oos_metrics') or data.get('oos')
                 if not oos: continue
                 
-                # Try to extract date from path or metadata
-                date_str = self._extract_date(path) or data.get('run_date')
+                # Try to extract date from path (including parent dirs) or metadata
+                date_str = self._extract_date(path) or self._extract_date(os.path.dirname(path)) or data.get('run_date')
                 if not date_str: continue
                 
                 runs.append({

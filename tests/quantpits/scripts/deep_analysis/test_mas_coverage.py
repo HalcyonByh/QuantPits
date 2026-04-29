@@ -730,17 +730,17 @@ def test_model_health_convergence_analysis():
     perf_series = {
         "model_underfit": [
             {"_date": "2026-01-01", "IC_Mean": 0.05, "convergence": {
-                "early_stopped": True, "epochs_done": 20, "configured_epochs": 200, "duration_s": 100
+                "early_stopped": True, "actual_epochs": 20, "configured_epochs": 200, "duration_seconds": 100
             }},
         ],
         "model_full_epoch": [
             {"_date": "2026-01-01", "IC_Mean": 0.05, "convergence": {
-                "early_stopped": False, "epochs_done": 200, "configured_epochs": 200, "duration_s": 500
+                "early_stopped": False, "actual_epochs": 200, "configured_epochs": 200, "duration_seconds": 500
             }},
         ],
         "model_ok": [
             {"_date": "2026-01-01", "IC_Mean": 0.05, "convergence": {
-                "early_stopped": True, "epochs_done": 150, "configured_epochs": 200, "duration_s": 400
+                "early_stopped": True, "actual_epochs": 150, "configured_epochs": 200, "duration_seconds": 400
             }},
         ],
         "model_no_conv": [
@@ -772,19 +772,19 @@ def test_model_health_convergence_findings(mock_analysis_context, tmp_path):
     f1 = ws / "model_performance_2026-01-02.json"
     f1.write_text(json.dumps({
         "model_a": {"IC_Mean": 0.05, "ICIR": 0.5, "record_id": "r1", "convergence": {
-            "early_stopped": True, "epochs_done": 20, "configured_epochs": 200, "duration_s": 100
+            "early_stopped": True, "actual_epochs": 20, "configured_epochs": 200, "duration_seconds": 100
         }},
         "model_b": {"IC_Mean": 0.05, "ICIR": 0.5, "record_id": "r2", "convergence": {
-            "early_stopped": False, "epochs_done": 200, "configured_epochs": 200, "duration_s": 500
+            "early_stopped": False, "actual_epochs": 200, "configured_epochs": 200, "duration_seconds": 500
         }},
     }))
     f2 = ws / "model_performance_2026-01-03.json"
     f2.write_text(json.dumps({
         "model_a": {"IC_Mean": 0.05, "ICIR": 0.5, "record_id": "r1", "convergence": {
-            "early_stopped": True, "epochs_done": 20, "configured_epochs": 200, "duration_s": 100
+            "early_stopped": True, "actual_epochs": 20, "configured_epochs": 200, "duration_seconds": 100
         }},
         "model_b": {"IC_Mean": 0.05, "ICIR": 0.5, "record_id": "r2", "convergence": {
-            "early_stopped": False, "epochs_done": 200, "configured_epochs": 200, "duration_s": 500
+            "early_stopped": False, "actual_epochs": 200, "configured_epochs": 200, "duration_seconds": 500
         }},
     }))
 
@@ -1055,7 +1055,7 @@ def test_market_regime_no_switches():
     result = agent._detect_regime_switches(bench, window=20, step=5)
 
     assert result["switch_count"] == 0
-    assert result["current_streak_days"] == 60  # Entire window = same regime
+    assert result["current_streak_days"] == 59  # calendar days: 2026-01-01 → 2026-03-01
     assert result["current_regime"] == "Bullish"
 
 
